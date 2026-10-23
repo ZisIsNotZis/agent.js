@@ -9,7 +9,7 @@ It is the sibling of `agent.sh`, not a port of it: there the model writes bash a
 
 The two gating questions are answered (root, 2026-10-23) and recorded at the top of `inbox/2026-10-22-design-tree.md`: durability is promised for the site **added to the Home Screen**, not for a tab or a bookmark; execution is native JS plus erasable-syntax TS with `isomorphic-git` in the tab, with Python as a lazy opt-in outside the promise.
 `ROADMAP.md` is the ledger: M1 (the tree survives a kill) and M5 (it is served) are done, and M2–M4, M6 are open.
-The promise is measured on desktop Chromium, locally and on the live origin; the Home Screen itself is not yet — the checklist someone has to run is in `mail/2026-10-23-pages-and-the-phone-checklist.md`.
+The promise is measured on desktop Chromium, locally and on the live origin (13/13 against `https://zisisnotzis.github.io/agent.js/`); the Home Screen itself is not yet, and the checklist someone has to run is in `mail/2026-10-23-pages-and-the-phone-checklist.md`.
 
 ## Where it is
 

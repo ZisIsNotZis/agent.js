@@ -42,7 +42,7 @@ Not doing: grep, patch, push, TS, Python.
 **M5 — the served copy — `done`, 2026-10-23.** Depends on M1 only.
 Outcome: the URL a person can add to the Home Screen, and the only place the promise can be observed.
 Deliverable: this tree served by GitHub Pages from the public repository `github.com/ZisIsNotZis/agent.js`, default branch, no server of ours and no build step.
-Acceptance: `curl -sI https://zisisnotzis.github.io/agent.js/manifest.webmanifest` returns 200 and `application/manifest+json`; the M1 probe run against the live origin also prints 13/13; and the phone steps below are **not yet run**.
+Acceptance: `curl -sI https://zisisnotzis.github.io/agent.js/manifest.webmanifest` returns 200 and `application/manifest+json` (seen 2026-10-23); the M1 probe run against the live origin prints 13/13 (seen 2026-10-23, commit `0fcfcb5`); and the phone steps are **not yet run**.
 Not doing: any origin server, any telemetry, any credential of ours.
 
 ## The one step still unrun, and who runs it
