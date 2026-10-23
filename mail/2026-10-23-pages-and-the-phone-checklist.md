@@ -12,7 +12,7 @@ The checklist for the person is below, in the order they do it, and it is the wh
 ## The repository, the serve, the URL
 
 - **Repository:** `https://github.com/ZisIsNotZis/agent.js` — public, AGPL-3.0, this tree as its own root, nothing else of the workspace in it.
-- **Commit:** `3de0298366ddf2a8b2b263b82092ac2e8845d7d4` on `main`, which is what Pages built; the site's own bytes have not changed since the first push `0fcfcb5`, and this file arriving was the only difference between them.
+- **Commit:** `0fcfcb5a345178a923eebb6c4d78619f299bb4ee` is the first push and carries the site; every commit after it differs only in documentation (and the full AGPL text), so the bytes a phone loads have not moved since.
 - **URL:** `https://zisisnotzis.github.io/agent.js/` — Pages from the default branch, path `/`, no build step, no server of ours.
 - **Why the project root is the site:** so the repository URL is the URL a person adds to their Home Screen, and the bare URL is not a 404 pointing at a `/site/` suffix.
 
