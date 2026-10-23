@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>agent.js</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="agent.js">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#101014">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" href="./icon-192.png">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 20px 18px 48px; font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+         background: #101014; color: #e6e6ec; max-width: 44rem; }
+  h1 { font-size: 18px; margin: 0 0 14px; letter-spacing: .04em; }
+  p { margin: 0 0 10px; }
+  .k { color: #8b8b9a; }
+  #container, #claim { border-left: 3px solid #44444f; padding: 8px 10px; }
+  #claim[data-persisted="true"]  { border-color: #3f9c5a; }
+  #claim[data-persisted="false"] { border-color: #c08a2a; }
+  #claim[data-persisted="unknown"] { border-color: #7a4a4a; }
+  pre { background: #17171d; padding: 10px 12px; overflow-x: auto; border-radius: 4px;
+        font-size: 13px; margin: 0 0 14px; }
+  button { font: inherit; background: #23232c; color: #e6e6ec; border: 1px solid #3a3a46;
+           border-radius: 4px; padding: 8px 12px; }
+  .step { color: #8b8b9a; }
+</style>
+</head>
+<body>
+<h1>agent.js — milestone 1</h1>
+
+<p id="container" data-standalone="unknown"></p>
+
+<p id="claim" data-persisted="unknown">
+  <span class="k">navigator.storage.persisted():</span> <span id="persisted-value">reading…</span>
+</p>
+
+<p><span class="k">what is on disk now, read back from OPFS:</span></p>
+<pre id="tree">reading…</pre>
+
+<p><button id="persist">Ask the browser to keep this origin's data</button></p>
+
+<p id="install-hint" class="step"></p>
+
+<script type="module" src="./src/app.js"></script>
+</body>
+</html>
