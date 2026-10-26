@@ -28,10 +28,11 @@ Deliverable: one JSON export of `.agentjs/` plus a share-sheet download, and one
 Acceptance: `node tools/probe-m2.mjs` — export in a tab, import in a profile that has nothing, boots/created/nodes match; and the Home Screen/ tab distinction is on screen in both containers.
 Not doing: partial merges, account sync, encryption theatre.
 
-**M3 — the log, and resume with nothing in memory — `open`.** Depends on M1.
+**M3 — the log, and resume with nothing in memory — `done`, 2026-10-26, commit `d2ecbfa`.** Depends on M1.
 Outcome: a kill mid-step costs at most the step. The tree on reopen is reconstructed from the append-only log, not from a snapshot.
-Deliverable: `src/log.js` (IndexedDB, intent/result pairs), a replay on boot, and a visible "what was in flight" line.
-Acceptance: kill the page at N random points in a scripted run; every reopen reports the same settled state and names the one step that was re-run. `node tools/probe-m3.mjs` prints N and the count.
+Deliverable: `src/log.js` (IndexedDB, intent/result pairs, the uniqueness rule enforced by a `kind:seq` index rather than by its callers), `src/run.js` (the step and its pure in-file tool set, plus the boot replay), the `in flight` line on screen, `tools/probe-m3.mjs`. The OPFS snapshot is kept but demoted to a cache, which is what the design record said it was.
+Acceptance: kill the page at N random points in a scripted run; every reopen reports the same settled state and names the one step that was re-run. `node tools/probe-m3.mjs` prints N and the count — `N=24 kills=24 consistent=24 rerun-named=13` with 13 mid-step and 11 between-step kills, printed twice on 2026-10-26 (seed `20261026`, and a second unseeded run) at 27/27, with `probe-m1` still 13/13 in the same tree.
+Known and accepted at this size: `replay()`'s `check()` branch ("already settled") is reachable only for effects that can be duplicated, and at M3 every interrupted intent is genuinely re-run, so the probe proves two of the three phrases. M4's git commit is the first effect that needs the third.
 Not doing: checkpoints, a continue button, model calls.
 
 **M4 — the first real agent step: one tool, one commit — `open`.** Depends on M3.
