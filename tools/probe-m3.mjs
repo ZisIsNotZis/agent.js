@@ -13,8 +13,10 @@
 // hook, so the page dies exactly between intent and result — no timing race.
 //
 // The URL may be a live origin, so a load gets 60s and one retry; a load that
-// fails twice is counted as NET and never read as a resume failure. Exit is 0
-// only when every check passed, i.e. only when network=0.
+// fails twice is counted as NET and never read as a resume failure. The retry
+// runs on a fresh page in the same profile, because Playwright does not cancel
+// a navigation that timed out. Exit is 0 only when every check passed, i.e. only
+// when network=0 and cold=0.
 //
 // Playwright is found, not hard-coded, exactly as in probe-m1: bare
 // `playwright-core`, or PLAYWRIGHT_CORE pointing at an install; CHROME_PATH
@@ -112,22 +114,44 @@ async function controlling(page) {
 // still reports what the SW was doing in that profile a moment earlier.
 let lastLoad = null;
 
-// goto with one retry. `label` names the attempt — a kill index, or the kill-free
-// baseline. A repeat failure at the same label prints the navigation's own words
-// and whether the SW was driving the page, then throws a NetworkError.
+// The page a load runs on, with its errors reported once, wherever it is made.
+function watch(page) {
+  page.on('pageerror', (e) => console.log('  [page error]', e.message));
+  return page;
+}
+
+// A timed-out navigation is not cancelled: a second goto on the same page would
+// interrupt it and fail for a reason that is not the origin's. So a retry gets a
+// fresh page in the same persistent context — the profile (IndexedDB, OPFS) is
+// what the kill test needs to survive, the page is not.
+async function freshPage(page) {
+  const ctx = page.context();
+  // Open before closing: in a persistent context the last page *is* the browser,
+  // so closing it first tears the context down and the retry dies with
+  // `net::ERR_ABORTED` on a page that no longer exists.
+  const next = await ctx.newPage();
+  await page.close().catch(() => {});
+  return watch(next);
+}
+
+// goto with one retry, returning the page the load happened on: `label` names the
+// attempt — a kill index, or the kill-free baseline. A repeat failure at the same
+// label prints the navigation's own words and whether the SW was driving the
+// page, then throws a NetworkError.
 async function goto(page, label) {
   try {
-    const res = await page.goto(URL_, NAV);
-    lastLoad = { label, url: res?.url?.() ?? page.url(), controller: await controlling(page) };
-    return res;
+    await page.goto(URL_, NAV);
+    lastLoad = { label, url: page.url(), controller: await controlling(page) };
+    return page;
   } catch (e) {
     if (!isNetwork(e)) throw e;
     retries += 1;
-    console.log(`RETRY  ${label} — goto timed out, retrying`);
+    console.log(`RETRY  ${label} — goto timed out, retrying on a fresh page`);
+    page = await freshPage(page);
     try {
-      const res = await page.goto(URL_, NAV);
-      lastLoad = { label, url: res?.url?.() ?? page.url(), controller: await controlling(page) };
-      return res;
+      await page.goto(URL_, NAV);
+      lastLoad = { label, url: page.url(), controller: await controlling(page) };
+      return page;
     } catch (e2) {
       if (!isNetwork(e2)) throw e2;
       const sw = await controlling(page);
@@ -145,35 +169,89 @@ async function goto(page, label) {
   }
 }
 
-// Wait until the SW is active and driving this page: `sw.js` skips waiting and
-// claims its clients, so a controlled load appears without a reload.
-async function driven(page, ms = 15000) {
-  try {
-    await page.evaluate(async (t) => {
-      await Promise.race([
-        navigator.serviceWorker.ready,
-        new Promise((_, rej) => setTimeout(() => rej(new Error('no active SW')), t)),
-      ]);
-    }, ms);
-  } catch { /* the check below is the answer */ }
-  return (await controlling(page)) === true;
+// Is the SW driving this page? `sw.js` skips waiting and claims its clients, so
+// the controller arrives on a page that is already loaded — up to `ms` after the
+// navigation, not at it. Polling is the measurement; a reload would be a second
+// race the probe makes itself.
+async function controlled(page, ms) {
+  const t0 = Date.now();
+  const ctl = await page.evaluate(async (t) => {
+    const until = Date.now() + t;
+    await Promise.race([
+      navigator.serviceWorker.ready.catch(() => null),
+      new Promise((r) => setTimeout(r, t)),
+    ]);
+    while (navigator.serviceWorker.controller === null && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return navigator.serviceWorker.controller !== null;
+  }, ms).catch((e) => `unknown (${e.message.split('\n')[0]})`);
+  return { ctl, wait: Date.now() - t0 };
 }
 
-let cold = 0;
+const COLD_WAIT_MS = 20000;
 
-// A load the service worker is not driving fetched the shell from the origin:
-// that is not a resume observation, so it is named COLD, the SW is given its
-// chance to take control, and the load happens once more — counted apart from
-// NET so neither can hide inside the other.
+// A load the service worker is not driving fetched the shell from the origin.
+// That is only an observation once the claim has had its turn: the page waits on
+// its own controller, and a page still uncontrolled after COLD_WAIT_MS is a real
+// COLD, reported with the wait — counted apart from NET so neither can hide
+// inside the other.
+let cold = 0;
+let lateClaims = 0;
+let maxClaimWait = 0;
+
 async function loaded(page, label) {
-  await goto(page, label);
+  page = await goto(page, label);
   await waitReady(page);
-  if (await driven(page)) return;
+  if ((await controlled(page, 0)).ctl === true) return page;
+  const { ctl, wait } = await controlled(page, COLD_WAIT_MS);
+  if (ctl === true) {
+    // The claim arrived after the load: not COLD, but the wait is the number that
+    // says how close the claim race comes to being one.
+    lateClaims += 1;
+    maxClaimWait = Math.max(maxClaimWait, wait);
+    return page;
+  }
   cold += 1;
-  console.log(`COLD  ${label} — loaded with no service-worker controller; loading again once the SW controls the page`);
-  await goto(page, `${label} (cold again)`);
-  await waitReady(page);
-  if (!(await driven(page))) console.log(`COLD  ${label} — still uncontrolled after the second load`);
+  console.log(`COLD  ${label} — no controller ${wait}ms after the load: ${ctl}`);
+  await coldDiag(page, label, wait);
+  return page;
+}
+
+// What tells an install race from a claim race from an entry that never arrived:
+// the worker states, and the shell as the SW itself reports it — the shell list
+// has one home, sw.js, so the page asks rather than keeping a copy.
+async function coldDiag(page, label, wait) {
+  const d = await page.evaluate(async () => {
+    const state = (w) => w?.state ?? null;
+    const reg = await navigator.serviceWorker.getRegistration().catch(() => null);
+    let shell = null;
+    let error = null;
+    if (reg?.active) {
+      try {
+        const ch = new MessageChannel();
+        const reply = new Promise((r) => {
+          ch.port1.onmessage = (e) => r(e.data);
+          setTimeout(() => r(null), 5000);
+        });
+        reg.active.postMessage({ type: 'shell-status' }, [ch.port2]);
+        shell = await reply;
+      } catch (e) {
+        error = e.message;
+      }
+    }
+    return {
+      controller: navigator.serviceWorker.controller !== null,
+      active: state(reg?.active),
+      installing: state(reg?.installing),
+      waiting: state(reg?.waiting),
+      shell,
+      error,
+    };
+  }).catch((e) => ({ error: e.message.split('\n')[0] }));
+  console.log(`COLD-DIAG  ${label} — wait=${wait}ms controller=${d.controller}`);
+  console.log(`COLD-DIAG  ${label} — active=${d.active} installing=${d.installing} waiting=${d.waiting}`);
+  console.log(`COLD-DIAG  ${label} — shell: ${d.shell ? `total=${d.shell.total} missing=${JSON.stringify(d.shell.missing)}` : `no answer (${d.error || 'no active worker'})`}`);
 }
 
 async function launch(userDataDir) {
@@ -182,8 +260,7 @@ async function launch(userDataDir) {
     headless: true,
   });
   const page = ctx.pages()[0] || (await ctx.newPage());
-  page.on('pageerror', (e) => console.log('  [page error]', e.message));
-  return { ctx, page };
+  return { ctx, page: watch(page) };
 }
 
 async function waitReady(page) {
@@ -229,9 +306,9 @@ function seqProblems(recs) {
 // compared to exactly the part of the run that should have happened.
 async function killFreeRun() {
   const dir = await mkdtemp(join(tmpdir(), 'agentjs-m3-base-'));
-  const { ctx, page } = await launch(dir);
+  let { ctx, page } = await launch(dir);
   try {
-    await loaded(page, 'kill-free baseline');
+    page = await loaded(page, 'kill-free baseline');
     const prefixes = [];
     for (let i = 0; i < STEPS; i += 1) {
       await runStep(page, script[i]);
@@ -255,7 +332,7 @@ let midNet = 0;
 
 function finish() {
   console.log(`\nN=${KILLS} kills=${KILLS} consistent=${consistent} rerun-named=${rerunNamed} network=${networkFails} cold=${cold}`);
-  console.log(`seed=${SEED} steps=${STEPS} mid-step kills=${midTrials} between-step kills=${KILLS - midTrials} retries=${retries} cadence=${CADENCE_MS}ms`);
+  console.log(`seed=${SEED} steps=${STEPS} mid-step kills=${midTrials} between-step kills=${KILLS - midTrials} retries=${retries} cadence=${CADENCE_MS}ms late-claims=${lateClaims} max-claim-wait=${maxClaimWait}ms`);
   const failed = checks.filter((x) => !x.ok);
   console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`);
   process.exit(failed.length ? 1 : 0);
@@ -285,7 +362,7 @@ for (let i = 0; i < KILLS; i += 1) {
   try {
     let page;
     ({ ctx, page } = await launch(dir));
-    await loaded(page, `kill ${i + 1}/${KILLS}`);
+    page = await loaded(page, `kill ${i + 1}/${KILLS}`);
 
     // Everything before the kill point runs normally.
     const doneBefore = mid ? c : c + 1;
@@ -307,7 +384,7 @@ for (let i = 0; i < KILLS; i += 1) {
 
     // Reopen the same profile: this is the resume.
     ({ ctx, page } = await launch(dir));
-    await loaded(page, `kill ${i + 1}/${KILLS} reopen`);
+    page = await loaded(page, `kill ${i + 1}/${KILLS} reopen`);
 
     const screen = await page.evaluate(() => ({
       text: document.getElementById('inflight').textContent,
@@ -318,7 +395,9 @@ for (let i = 0; i < KILLS; i += 1) {
     const reopenProblems = seqProblems(atReopen);
     if (reopenProblems.length) problems.push(...reopenProblems);
     if (JSON.stringify(screen.state) !== JSON.stringify(baseline.prefixes[c])) {
-      problems.push('settled state after reopen differs from the kill-free prefix');
+      // The two states, side by side: a live mismatch names itself rather than
+      // leaving the reader to guess which step went missing.
+      problems.push(`settled state after reopen differs from the kill-free prefix — baseline ${JSON.stringify(baseline.prefixes[c])} reopen ${JSON.stringify(screen.state)}`);
     }
 
     const seqMentions = screen.text.match(/seq \d+/g) || [];
@@ -337,7 +416,7 @@ for (let i = 0; i < KILLS; i += 1) {
     const finalProblems = seqProblems(finalRecs);
     if (finalProblems.length) problems.push(...finalProblems);
     if (JSON.stringify(final.state) !== JSON.stringify(baseline.final)) {
-      problems.push('final settled state differs from the kill-free run');
+      problems.push(`final settled state differs from the kill-free run — baseline ${JSON.stringify(baseline.final)} final ${JSON.stringify(final.state)}`);
     }
     if (final.records !== baseline.recs.length) {
       problems.push(`record count ${final.records} != ${baseline.recs.length}`);
@@ -370,7 +449,7 @@ check('every mid-step kill named exactly one re-run', rerunNamed === midTrials -
   `${rerunNamed}/${midTrials - midNet} mid-step kills${midNet ? `, ${midNet} NET` : ''}`);
 check('no load failed on the network', networkFails === 0,
   networkFails ? `${networkFails} of ${KILLS} loads failed twice (NET)` : `${KILLS}/${KILLS} loads reached the page`);
-check('every load was driven by the service worker', cold === 0,
-  cold ? `${cold} loads loaded uncontrolled (COLD)` : 'the SW drove every load it was asked about');
+check('no load stayed uncontrolled past the claim wait', cold === 0,
+  cold ? `${cold} loads had no controller ${COLD_WAIT_MS}ms after the load (COLD)` : 'every load was driven by the SW, none needed more than the claim');
 
 finish();

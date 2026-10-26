@@ -76,8 +76,27 @@ async function launch(userDataDir) {
     headless: true,
   });
   const page = ctx.pages()[0] || (await ctx.newPage());
+  return { ctx, page: watch(page) };
+}
+
+// The page a load runs on, with its errors reported once, wherever it is made.
+function watch(page) {
   page.on('pageerror', (e) => console.log('  [page error]', e.message));
-  return { ctx, page };
+  return page;
+}
+
+// A timed-out navigation is not cancelled: a second one on the same page would
+// interrupt it and fail for a reason that is not the origin's. So a retry gets a
+// fresh page in the same context — the profile is what the reads compare, the
+// page is not.
+async function freshPage(page) {
+  const ctx = page.context();
+  // Open before closing: in a persistent context the last page *is* the browser,
+  // so closing it first tears the context down and the retry dies with
+  // `net::ERR_ABORTED` on a page that no longer exists.
+  const next = await ctx.newPage();
+  await page.close().catch(() => {});
+  return watch(next);
 }
 
 // A load is the one part of this probe that can fail for a reason that is not
@@ -106,20 +125,23 @@ async function controlling(page) {
 // still reports what the SW was doing in that profile a moment earlier.
 let lastLoad = null;
 
-// One retry, then a NetworkError that prints its own diagnosis.
-async function withRetry(page, label, doNav) {
+// One retry, then a NetworkError that prints its own diagnosis. Returns the page
+// the load happened on, since a retry replaces it. `retryNav` is the load to run
+// on the fresh page: a reload there is that page's first goto.
+async function withRetry(page, label, doNav, retryNav = doNav) {
   try {
-    const res = await doNav();
+    await doNav(page);
     lastLoad = { label, url: page.url(), controller: await controlling(page) };
-    return res;
+    return page;
   } catch (e) {
     if (!isNetwork(e)) throw e;
     retries += 1;
-    console.log(`RETRY  ${label} — goto timed out, retrying`);
+    console.log(`RETRY  ${label} — goto timed out, retrying on a fresh page`);
+    page = await freshPage(page);
     try {
-      const res = await doNav();
+      await retryNav(page);
       lastLoad = { label, url: page.url(), controller: await controlling(page) };
-      return res;
+      return page;
     } catch (e2) {
       if (!isNetwork(e2)) throw e2;
       const sw = await controlling(page);
@@ -138,11 +160,11 @@ async function withRetry(page, label, doNav) {
 }
 
 function goto(page, label) {
-  return withRetry(page, label, () => page.goto(URL_, NAV));
+  return withRetry(page, label, (p) => p.goto(URL_, NAV));
 }
 
 function reload(page, label) {
-  return withRetry(page, label, () => page.reload(NAV));
+  return withRetry(page, label, (p) => p.reload(NAV), (p) => p.goto(URL_, NAV));
 }
 
 async function waitReady(page) {
@@ -236,9 +258,9 @@ function failedBlock(where, e) {
 
 // ---- profile A: a settled tree, then an export through the page's function ----
 {
-  const { ctx, page } = await launch(profileA);
+  let { ctx, page } = await launch(profileA);
   try {
-    await goto(page, 'profile A');
+    page = await goto(page, 'profile A');
     await waitReady(page);
     for (const s of script) await page.evaluate((st) => window.agent.step(st), s);
     await page.evaluate(() => window.agent.replay());
@@ -292,9 +314,9 @@ function failedBlock(where, e) {
 
 // ---- profile B: empty, then import through the real textarea + button ----
 if (!blocking) {
-  const { ctx, page } = await launch(profileB);
+  let { ctx, page } = await launch(profileB);
   try {
-    await goto(page, 'profile B');
+    page = await goto(page, 'profile B');
     await waitReady(page);
     const empty = await capture(page);
     check('import target profile really has nothing',
@@ -392,7 +414,7 @@ if (!blocking) {
 
     // ---- offline reopen after import: the shell from the SW, the tree from OPFS ----
     await page.evaluate(async () => { await navigator.serviceWorker.ready; });
-    await reload(page, 'profile B reload');
+    page = await reload(page, 'profile B reload');
     await waitReady(page);
     const controlled = await page.evaluate(async () => {
       await navigator.serviceWorker.ready;
