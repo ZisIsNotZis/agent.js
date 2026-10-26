@@ -62,6 +62,17 @@ The device that carries the promise has never opened it, so the promise is uncon
 Nothing waits on it: M2 onward are judged on a desktop profile, which is why they were ordered behind M1 rather than behind the device.
 When the person has a phone in hand, the ten steps are already written in the order they are done and stay there — `mail/2026-10-23-pages-and-the-phone-checklist.md`.
 
+## Probe rules, each learned by breaking one
+
+These are not style: every one of them was a probe reporting red that was measuring itself, and each cost a run to discover.
+
+1. **Wait for the product's own signal, never for a side condition.** `probe-m3` returned from a load once the service worker was controlling, which happens to be *after* boot on a fast origin; on one measured at TTFB 0.7–11.4 s it returned while boot replay was still in flight and reported `consistent=7/24` against a product that was correct. The signal is `window.agent.snapshot()` becoming non-null, with its own timeout.
+2. **In a persistent context the last page is the browser.** Closing the only page tears the context down, so a retry that closes before opening gets `net::ERR_ABORTED` and blames the origin. Open the replacement first, then close.
+3. **A navigation that timed out is still running.** Playwright does not cancel it, so a retry on the same page interrupts it; the retry needs a fresh page, and a fresh page needs rule 2.
+4. **A probe's independent oracle must be asserted against the thing it mirrors, or it silently rots.** `probe-shell` kept its own copy of `CACHE` and `SHELL` — which is what makes it independent — and when M6 bumped the cache to v6 it reported 7/11 that read exactly like a product defect. The copy stays; a check now fails loudly when it disagrees with `sw.js`.
+5. **A slow origin is not a failure, and a retry is not a pass.** `NET` (load failed twice), `COLD` (no controller after the claim wait) and `consistent` are counted apart; `exit 0` requires all three clean. Nothing may be retried into green.
+6. **Kill-test artifacts are named as artifacts.** Every iteration tears the browser context down, so the service worker restarts on every load; a navigation that begins while it is starting is uncontrolled and is claimed seconds later (`late-claims=23 max-claim-wait=13387ms` on live). That is the test pattern, not a person's second load — and it is exactly why `cold` is defined as *still* uncontrolled after a 20 s claim wait.
+
 ## Convention: where a project of this workspace is reachable
 
 A project of this workspace that must be reachable lives at `github.com/ZisIsNotZis/<its directory name>`, and this project's is `github.com/ZisIsNotZis/agent.js`.
