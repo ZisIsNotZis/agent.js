@@ -38,7 +38,7 @@ Not doing: checkpoints, a continue button, model calls.
 **M4 — the first real agent step: one tool, one commit — `open`.** Depends on M3.
 Outcome: a step that writes a file to OPFS and commits it with `isomorphic-git`, so the diff exists before any model does.
 Deliverable: `fs` adapter over OPFS, `isomorphic-git` wired, `ls`/`read`/`write`/`git_commit`, a boot that replays them.
-Acceptance: a scripted two-step run produces two commits; `git log` read back through `isomorphic-git` in the page shows both after a kill and reopen.
+Acceptance: a scripted two-step run produces two commits; `git log` read back through `isomorphic-git` in the page shows both after a kill and reopen. The per-step budget is already measured, so it is part of the acceptance rather than a later discovery: **0.25–0.49 s at 1k files, 3.0–4.1 s at 10k**, bundle **91 KB gzip** including the `Buffer` shim (`tools/bench-iogit/REPORT.md`); a step that runs a full `status` instead of committing one path is out of budget by 20× at 10k and is a defect, not slow.
 Not doing: grep, patch, push, TS, Python.
 
 **M5 — the served copy — `done`, 2026-10-23.** Depends on M1 only.
@@ -74,4 +74,5 @@ No server of ours beyond a CDN; no relay; no telemetry; no token at rest; no Web
 ## What the ledger does not yet show
 
 Every measurement in the design record's probe list other than the durability mechanism is still `reported`, not `measured`.
-The two that decide later milestones: `isomorphic-git` timing over OPFS at 1k and 10k files (M4), and the grep route (M6/never, depending on what the walk costs).
+`isomorphic-git` over OPFS is no longer one of them: measured 2026-10-26, a per-step commit of one file costs **0.25–0.49 s at 1k files** and **3.0–4.1 s at 10k**, and the bundle is **91 KB gzip** including the `Buffer` shim it requires (`tools/bench-iogit/`). What that fixes in advance: the step path commits one file and never runs a full `status` (12–18 s at 10k), and the workspace's practical size is set by that slope (~0.3 ms per file per commit), not by quota.
+The one left that decides a later milestone: the grep route (M6/never, depending on what the walk costs). Still `reported` and not `measured`: anything on a phone, Safari or Firefox; the Worker thread; `createSyncAccessHandle`.

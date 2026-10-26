@@ -1,0 +1,353 @@
+{
+  "files": 1000,
+  "results": [
+    {
+      "label": "cold1",
+      "files": 1000,
+      "phases": {
+        "wipe": {
+          "ms": 78.6
+        },
+        "opfsAdapter": {
+          "ms": 17.1
+        },
+        "init": {
+          "ms": 17.7
+        },
+        "gen": {
+          "ms": 2824
+        },
+        "add": {
+          "ms": 3041.9
+        },
+        "commit": {
+          "ms": 588.4
+        },
+        "status": {
+          "ms": 947.4
+        },
+        "log": {
+          "ms": 10.5
+        },
+        "second.write": {
+          "ms": 3.6
+        },
+        "second.add": {
+          "ms": 22.6
+        },
+        "second.commit": {
+          "ms": 224.6
+        },
+        "status.after2": {
+          "ms": 1245.1
+        }
+      },
+      "timedOut": [],
+      "meta": {
+        "estimateBefore": {
+          "usageMB": 0,
+          "quotaMB": 10240
+        },
+        "memBefore": {
+          "usedMB": 2.7,
+          "totalMB": 4.1
+        },
+        "statShape": {
+          "file": {
+            "type": "file",
+            "mode": "0o100644",
+            "size": 5,
+            "mtimeMs": 1793016058449
+          },
+          "dir": {
+            "type": "dir",
+            "mode": "0o40000",
+            "size": 0
+          },
+          "readdir": [
+            "a.txt"
+          ],
+          "readFile": "hello"
+        },
+        "statsAfterGen": {
+          "usedMB": 2.4,
+          "totalMB": 9.1
+        },
+        "statsAfterCommit": {
+          "usedMB": 13.8,
+          "totalMB": 40.3
+        },
+        "statusRows": 1000,
+        "statusDirty": 0,
+        "logEntries": 1,
+        "secondCommitPath": "src/d50/f500.txt",
+        "statsAfterSecond": {
+          "usedMB": 27.9,
+          "totalMB": 43.7
+        },
+        "statusDirtyAfter2": 0,
+        "statusRowsAfter2": 1000,
+        "estimateAfter": {
+          "usageMB": 2.06,
+          "quotaMB": 10242
+        },
+        "memAfter": {
+          "usedMB": 26.1,
+          "totalMB": 46.3
+        },
+        "bundle": [
+          {
+            "name": "buffer.min.js",
+            "transferBytes": 28702,
+            "encodedBytes": 28402,
+            "decodedBytes": 28402,
+            "durationMs": 10.7
+          },
+          {
+            "name": "isomorphic-git.min.js",
+            "transferBytes": 270322,
+            "encodedBytes": 270022,
+            "decodedBytes": 270022,
+            "durationMs": 7.2
+          }
+        ],
+        "bufferShim": true,
+        "processShim": false
+      },
+      "ok": true,
+      "wallMs": 9063
+    },
+    {
+      "label": "cold2",
+      "files": 1000,
+      "phases": {
+        "wipe": {
+          "ms": 60
+        },
+        "opfsAdapter": {
+          "ms": 11
+        },
+        "init": {
+          "ms": 14.6
+        },
+        "gen": {
+          "ms": 3068.1
+        },
+        "add": {
+          "ms": 3211.8
+        },
+        "commit": {
+          "ms": 572.2
+        },
+        "status": {
+          "ms": 1038.9
+        },
+        "log": {
+          "ms": 9.3
+        },
+        "second.write": {
+          "ms": 2.8
+        },
+        "second.add": {
+          "ms": 19.8
+        },
+        "second.commit": {
+          "ms": 464.7
+        },
+        "status.after2": {
+          "ms": 1433.9
+        }
+      },
+      "timedOut": [],
+      "meta": {
+        "estimateBefore": {
+          "usageMB": 0,
+          "quotaMB": 10240
+        },
+        "memBefore": {
+          "usedMB": 2.7,
+          "totalMB": 4.4
+        },
+        "statShape": {
+          "file": {
+            "type": "file",
+            "mode": "0o100644",
+            "size": 5,
+            "mtimeMs": 1793016068056
+          },
+          "dir": {
+            "type": "dir",
+            "mode": "0o40000",
+            "size": 0
+          },
+          "readdir": [
+            "a.txt"
+          ],
+          "readFile": "hello"
+        },
+        "statsAfterGen": {
+          "usedMB": 2.4,
+          "totalMB": 9.4
+        },
+        "statsAfterCommit": {
+          "usedMB": 21.4,
+          "totalMB": 41.3
+        },
+        "statusRows": 1000,
+        "statusDirty": 0,
+        "logEntries": 1,
+        "secondCommitPath": "src/d50/f500.txt",
+        "statsAfterSecond": {
+          "usedMB": 23.9,
+          "totalMB": 44.2
+        },
+        "statusDirtyAfter2": 0,
+        "statusRowsAfter2": 1000,
+        "estimateAfter": {
+          "usageMB": 2.06,
+          "quotaMB": 10242
+        },
+        "memAfter": {
+          "usedMB": 24.3,
+          "totalMB": 46
+        },
+        "bundle": [
+          {
+            "name": "buffer.min.js",
+            "transferBytes": 28702,
+            "encodedBytes": 28402,
+            "decodedBytes": 28402,
+            "durationMs": 12.4
+          },
+          {
+            "name": "isomorphic-git.min.js",
+            "transferBytes": 270322,
+            "encodedBytes": 270022,
+            "decodedBytes": 270022,
+            "durationMs": 4.6
+          }
+        ],
+        "bufferShim": true,
+        "processShim": false
+      },
+      "ok": true,
+      "wallMs": 9950
+    },
+    {
+      "label": "warm",
+      "files": 1000,
+      "phases": {
+        "wipe": {
+          "ms": 486.4
+        },
+        "opfsAdapter": {
+          "ms": 12
+        },
+        "init": {
+          "ms": 11.1
+        },
+        "gen": {
+          "ms": 3053.2
+        },
+        "add": {
+          "ms": 3452.3
+        },
+        "commit": {
+          "ms": 681.1
+        },
+        "status": {
+          "ms": 1084.4
+        },
+        "log": {
+          "ms": 7.4
+        },
+        "second.write": {
+          "ms": 2.3
+        },
+        "second.add": {
+          "ms": 18.9
+        },
+        "second.commit": {
+          "ms": 388.2
+        },
+        "status.after2": {
+          "ms": 2137.2
+        }
+      },
+      "timedOut": [],
+      "meta": {
+        "estimateBefore": {
+          "usageMB": 2.06,
+          "quotaMB": 10242
+        },
+        "memBefore": {
+          "usedMB": 24.4,
+          "totalMB": 46
+        },
+        "statShape": {
+          "file": {
+            "type": "file",
+            "mode": "0o100644",
+            "size": 5,
+            "mtimeMs": 1793016078393
+          },
+          "dir": {
+            "type": "dir",
+            "mode": "0o40000",
+            "size": 0
+          },
+          "readdir": [
+            "a.txt"
+          ],
+          "readFile": "hello"
+        },
+        "statsAfterGen": {
+          "usedMB": 13.5,
+          "totalMB": 53.5
+        },
+        "statsAfterCommit": {
+          "usedMB": 30.8,
+          "totalMB": 69.7
+        },
+        "statusRows": 1000,
+        "statusDirty": 0,
+        "logEntries": 1,
+        "secondCommitPath": "src/d50/f500.txt",
+        "statsAfterSecond": {
+          "usedMB": 35.9,
+          "totalMB": 73.3
+        },
+        "statusDirtyAfter2": 0,
+        "statusRowsAfter2": 1000,
+        "estimateAfter": {
+          "usageMB": 2.06,
+          "quotaMB": 10242
+        },
+        "memAfter": {
+          "usedMB": 25.6,
+          "totalMB": 74.5
+        },
+        "bundle": [
+          {
+            "name": "buffer.min.js",
+            "transferBytes": 28702,
+            "encodedBytes": 28402,
+            "decodedBytes": 28402,
+            "durationMs": 12.4
+          },
+          {
+            "name": "isomorphic-git.min.js",
+            "transferBytes": 270322,
+            "encodedBytes": 270022,
+            "decodedBytes": 270022,
+            "durationMs": 4.6
+          }
+        ],
+        "bufferShim": true,
+        "processShim": false
+      },
+      "ok": true,
+      "wallMs": 11341
+    }
+  ]
+}

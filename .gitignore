@@ -1,0 +1,5 @@
+# Nothing here is installed or generated into the served tree.
+node_modules/
+tools/bench-iogit/public/vendor/
+tools/bench-iogit/package-lock.json
+.tmp/

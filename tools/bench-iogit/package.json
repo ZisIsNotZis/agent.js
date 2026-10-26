@@ -1,0 +1,19 @@
+{
+  "name": "agentjs-iogit-timing",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "dependencies": {
+    "isomorphic-git": "^1.44.4",
+    "playwright-core": "^1.64.1"
+  },
+  "devDependencies": {
+    "buffer": "^6.0.3",
+    "esbuild": "^0.28.2"
+  }
+}
