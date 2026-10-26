@@ -73,10 +73,12 @@ The workspace pins this directory as a submodule pointing at that repository, wh
 
 **The live origin's path from this machine, measured 2026-10-26.** A bare `curl` at a **10 s** cadence — no browser, no service worker, no concurrency — made **18** requests and got TTFB between **0.73 s and 11.4 s** (median ~2.5 s, connect alone up to 5.4 s), with **one** request that returned **0 bytes after 65 s** against a 65 s `--max-time`. That is the whole explanation of the live probe failures: the route to the CDN stalls for minutes at a time, occasionally to the point of never answering, and it does so at a cadence too low to be rate limiting. It is therefore a fact about the network path and the edge, not about this code, and the response is the one the probes now carry: every load waits 60 s, a load that fails twice is counted as `NET`, a load with no service-worker controller is `COLD` and retried once, and `node tools/probe-m3.mjs` exits 0 only when `network=0`. A run against the live origin is taken with an explicit `CADENCE_MS` (default 2500) so the pressure it puts on the origin is a number rather than an accident.
 
-**M6 — execution: native JS in a Worker, then erasable TS — `open`.** Depends on M4.
+**M6 — execution: native JS in a Worker, then erasable TS — `done`, 2026-10-26, commit `ed44c40`.** Depends on M4.
 Outcome: the promise's first half. A file in the workspace is executed in a Worker with no shell and no licence.
-Deliverable: `run_js`; then type-stripping for the erasable subset with the unsupported constructs named on screen.
-Acceptance: a JS file returns its stdout; a `.ts` file with an `enum` is refused with the reason, and one without runs. `node tools/probe-m6.mjs`.
+Deliverable: `run_js` (`src/exec.js` page side, `src/worker.js` the worker body fetched as a URL, Blob-constructed, stdout/stderr/exit/wallMs, 10 s cap that terminates it); `.ts`/`.tsx` stripped by a **lazily tapped** vendored TypeScript, with `enum` / `namespace` / decorators / constructor parameter properties **refused by an AST walk** (not a regex) naming file, line and construct; both recorded as steps through the same log.
+Acceptance: a JS file returns its stdout; a `.ts` file with an `enum` is refused with the reason, and one without runs. `node tools/probe-m6.mjs` → **25/25**, and the other five probes unchanged: m1 13/13, m2 27/27, m3 29/29, m4 19/19, shell 12/12.
+The costs, measured rather than deferred: **TypeScript is 998 KB gzip** (3.56 MB raw) and is fetched only on the first `.ts` run, never in the shell; a second `.ts` run fetches nothing. That is the largest one-time cost in the product, and the branch that would cut it is sucrase at roughly 200 KB — rejected for now because sucrase *compiles* an `enum` instead of refusing it, which would dissolve the one boundary the promise is built on. The worker can call `fetch` (same origin); it cannot read the token, because the token is never in the worker — stated as the limit rather than called a sandbox.
+`run_js` is non-idempotent and is **never auto-replayed**: an intent with no result is resolved from an OPFS `done` marker (recovering the recorded output) or reported `interrupted`. A kill cannot execute a side effect twice, and the price is that a run killed before its code started is not retried — both shown on screen rather than hidden.
 Not doing: bundling, npm, `esbuild-wasm`, Python.
 
 ## Not doing, as decisions rather than gaps
@@ -85,6 +87,8 @@ No server of ours beyond a CDN; no relay; no telemetry; no token at rest; no Web
 
 ## What the ledger does not yet show
 
-Every measurement in the design record's probe list other than the durability mechanism is still `reported`, not `measured`.
+Some measurements in the design record's probe list are still `reported`, not `measured`.
 `isomorphic-git` over OPFS is no longer one of them: measured 2026-10-26, a per-step commit of one file costs **0.25–0.49 s at 1k files** and **3.0–4.1 s at 10k**, and the bundle is **91 KB gzip** including the `Buffer` shim it requires (`tools/bench-iogit/`). What that fixes in advance: the step path commits one file and never runs a full `status` (12–18 s at 10k), and the workspace's practical size is set by that slope (~0.3 ms per file per commit), not by quota.
-The one left that decides a later milestone: the grep route (M6/never, depending on what the walk costs). Still `reported` and not `measured`: anything on a phone, Safari or Firefox; the Worker thread; `createSyncAccessHandle`.
+The Worker thread is no longer one of them: M6 runs JS and TS in one, with a 10 s cap that stops a runaway and a tab that stays responsive (`probe-m6`).
+The one left that decides a later milestone: the **grep route** — whether a walk of 10k files through the `fs` adapter, or a WASI preopen shim, or passing contents to a wasm regex engine is the one that fits `D5`. Unmeasured, and it decides whether grep ships at all.
+Still `reported` and not `measured`: anything on a phone, Safari or Firefox; `createSyncAccessHandle`; the `promises` path at 100k files, where the 0.3 ms/file slope would start to matter.
