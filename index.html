@@ -27,11 +27,17 @@
         font-size: 13px; margin: 0 0 14px; }
   button { font: inherit; background: #23232c; color: #e6e6ec; border: 1px solid #3a3a46;
            border-radius: 4px; padding: 8px 12px; }
+  textarea { font: inherit; width: 100%; box-sizing: border-box; min-height: 5em;
+             background: #17171d; color: #e6e6ec; border: 1px solid #3a3a46; border-radius: 4px;
+             padding: 8px 10px; }
+  input[type=file] { font: inherit; color: #b9b9c6; }
+  #transfer-status[data-status="ok"]    { color: #7fbf92; }
+  #transfer-status[data-status="error"] { color: #d98b8b; }
   .step { color: #8b8b9a; }
 </style>
 </head>
 <body>
-<h1>agent.js — milestone 1</h1>
+<h1>agent.js — milestone 2</h1>
 
 <p id="container" data-standalone="unknown"></p>
 
@@ -45,6 +51,15 @@
 <p id="inflight" data-inflight="unknown">in flight   reading…</p>
 
 <p><button id="persist">Ask the browser to keep this origin's data</button></p>
+
+<p><span class="k">export</span> <span id="export-info">reading the ledger and the tree…</span></p>
+<p><button id="export">Export workspace</button></p>
+
+<p><span class="k">import</span> replaces everything here with the file's workspace:</p>
+<p><input type="file" id="import-file" accept="application/json,.json">
+   <button id="import-paste">Import pasted text</button></p>
+<p><textarea id="import-text" spellcheck="false" placeholder="or paste an agentjs-*.json bundle here"></textarea></p>
+<p id="transfer-status" data-status="idle"></p>
 
 <p id="install-hint" class="step"></p>
 

@@ -27,6 +27,19 @@ export async function readState() {
   return { state: JSON.parse(text), bytes: text.length };
 }
 
+// Removes the whole .agentjs/ directory. Used only by transfer.js's deliberate
+// replace path, so a person's own files under .agentjs/ are never left behind
+// when an imported workspace takes over.
+export async function clearState() {
+  if (!navigator.storage || !navigator.storage.getDirectory) return;
+  const root = await navigator.storage.getDirectory();
+  try {
+    await root.removeEntry(DIR, { recursive: true });
+  } catch (e) {
+    if (e.name !== 'NotFoundError') throw e;
+  }
+}
+
 export async function writeState(state) {
   const dir = await treeDir();
   const fh = await dir.getFileHandle(FILE, { create: true });

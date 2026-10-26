@@ -93,6 +93,19 @@ export async function readAll() {
   });
 }
 
+// Used only by transfer.js's deliberate replace path. Nothing in the running
+// product deletes records; the log is append-only everywhere else.
+export async function clear() {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error('log clear aborted'));
+  });
+}
+
 export async function nextSeq() {
   const db = await openDb();
   return new Promise((resolve, reject) => {

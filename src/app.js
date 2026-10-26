@@ -5,6 +5,7 @@
 
 import { boot, NoOpfs } from './state.js';
 import { replaySettled } from './run.js';
+import { exportBundle, importBundle, bundleText, deliverBundle, exportFilename } from './transfer.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,11 +24,33 @@ function renderContainer() {
   const el = $('container');
   el.dataset.standalone = String(standalone);
   el.textContent = standalone
-    ? 'Running from the Home Screen: its own storage container, separate from the browser tabs. '
-      + 'Open the icon, not the tab — a tab and the icon do not see the same files.'
-    : 'Running in a browser tab. In Safari this container is wiped after 7 days without '
-      + 'interaction (ITP); the same site added to the Home Screen is exempt. '
-      + 'Tap Share → Add to Home Screen, then open the icon.';
+    ? 'Running from the Home Screen: standalone storage is its own container. '
+      + 'A browser tab is a different container and does not see these files — to move '
+      + 'a workspace in, export it in the tab and import it here.'
+    : 'Running in a browser tab: this tab\u2019s storage is its own container. '
+      + 'The same site opened from the Home Screen icon is a different container and does '
+      + 'not see these files. In Safari this tab is wiped after 7 days without interaction '
+      + '(ITP) — export to keep the workspace, or add to Home Screen and import it there.';
+}
+
+function setStatus(text, status = 'idle') {
+  const el = $('transfer-status');
+  el.dataset.status = status;
+  el.textContent = text;
+}
+
+const bytesOf = (text) => new TextEncoder().encode(text).length;
+
+async function renderTransferInfo() {
+  const el = $('export-info');
+  try {
+    const bundle = await exportBundle();
+    el.textContent = `${bundle.brief} — ${bytesOf(bundleText(bundle))} bytes as one readable JSON file`;
+    return bundle;
+  } catch (e) {
+    el.textContent = `could not be read: ${e.name}: ${e.message}`;
+    return null;
+  }
 }
 
 async function renderPersistence() {
@@ -108,15 +131,73 @@ async function main() {
     : 'iOS: Share → Add to Home Screen. Android/Chrome: menu → Install app. '
       + 'iOS 26+ opens any Home Screen site as a web app; the manifest is for older iOS and for Chrome.';
 
+  async function doImport(text) {
+    const out = await importBundle(text);
+    if (!out.ok) {
+      setStatus(`import refused — ${out.reason}`, 'error');
+      return out;
+    }
+    setStatus(`imported — ${out.bundle.brief}`, 'ok');
+    renderInflight(out.replayed);
+    renderTree(out.result, out.replayed);
+    await renderTransferInfo();
+    return out;
+  }
+
+  $('export').addEventListener('click', async () => {
+    $('export').disabled = true;
+    try {
+      const bundle = await exportBundle();
+      const sent = await deliverBundle(bundle);
+      if (sent.via === 'cancelled') {
+        setStatus(`export cancelled — nothing left the page (${bundle.brief})`, 'error');
+      } else {
+        setStatus(`exported ${sent.filename} — ${sent.bytes} bytes, via ${sent.via}`, 'ok');
+        $('export-info').textContent = `${bundle.brief} — ${sent.bytes} bytes as one readable JSON file`;
+      }
+    } catch (e) {
+      setStatus(`export failed: ${e.name}: ${e.message}`, 'error');
+    }
+    $('export').disabled = false;
+  });
+
+  $('import-file').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setStatus(`reading ${file.name} (${file.size} bytes)…`);
+    try {
+      await doImport(await file.text());
+    } catch (err) {
+      setStatus(`import failed: ${err.name}: ${err.message}`, 'error');
+    }
+    e.target.value = '';
+  });
+
+  $('import-paste').addEventListener('click', async () => {
+    const text = $('import-text').value;
+    if (!text.trim()) {
+      setStatus('nothing to import — choose a file or paste a bundle into the box', 'error');
+      return;
+    }
+    try {
+      await doImport(text);
+    } catch (err) {
+      setStatus(`import failed: ${err.name}: ${err.message}`, 'error');
+    }
+  });
+
   try {
     const replayed = await replaySettled();
     renderInflight(replayed);
     renderTree(await boot(replayed.state), replayed);
+    await renderTransferInfo();
   } catch (e) {
     $('tree').textContent = e instanceof NoOpfs
       ? `no OPFS here (${e.message}) — nothing is stored, so nothing survives a kill`
       : `the workspace could not be opened: ${e.name}: ${e.message}`;
   }
 }
+
+window.agent = { ...(window.agent || {}), exportBundle, importBundle, bundleText, deliverBundle, exportFilename };
 
 main();
