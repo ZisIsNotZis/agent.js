@@ -15,6 +15,9 @@
 // Playwright is found, not hard-coded, exactly as in probe-m1 and probe-m3: bare
 // `playwright-core`, or PLAYWRIGHT_CORE pointing at an install; CHROME_PATH
 // overrides the executable.
+//
+// The URL may be a live origin, so a load gets 60s and one retry; a load that
+// fails twice is reported as NET and never as a milestone failure.
 import { mkdtemp, mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -77,13 +80,89 @@ async function launch(userDataDir) {
   return { ctx, page };
 }
 
+// A load is the one part of this probe that can fail for a reason that is not
+// the code: a live origin's CDN can be slow. Loads are patient once and retried
+// once; a load that fails twice is NET — never a milestone failure.
+const NAV = { timeout: 60_000, waitUntil: 'load' };
+
+let retries = 0;
+let networkFails = 0;
+
+const isNetwork = (e) => e?.name === 'TimeoutError'
+  || /net::ERR_|ERR_CONNECTION|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_ABORTED/.test(e?.message || '');
+
+async function controlling(page) {
+  try {
+    return await Promise.race([
+      page.evaluate(() => navigator.serviceWorker.controller !== null),
+      new Promise((r) => setTimeout(() => r('unknown (no answer in 5s)'), 5000)),
+    ]);
+  } catch (e) {
+    return `unknown (${e.message.split('\n')[0]})`;
+  }
+}
+
+// The last load that got far enough to answer, so a page stuck mid-navigation
+// still reports what the SW was doing in that profile a moment earlier.
+let lastLoad = null;
+
+// One retry, then a NetworkError that prints its own diagnosis.
+async function withRetry(page, label, doNav) {
+  try {
+    const res = await doNav();
+    lastLoad = { label, url: page.url(), controller: await controlling(page) };
+    return res;
+  } catch (e) {
+    if (!isNetwork(e)) throw e;
+    retries += 1;
+    console.log(`RETRY  ${label} — goto timed out, retrying`);
+    try {
+      const res = await doNav();
+      lastLoad = { label, url: page.url(), controller: await controlling(page) };
+      return res;
+    } catch (e2) {
+      if (!isNetwork(e2)) throw e2;
+      const sw = await controlling(page);
+      console.log(`NET-DIAG  ${label} — first: ${e.message}`);
+      console.log(`NET-DIAG  ${label} — again: ${e2.message}`);
+      console.log(`NET-DIAG  ${label} — navigator.serviceWorker.controller !== null: ${sw}`);
+      if (lastLoad) {
+        console.log(`NET-DIAG  ${label} — last load that answered: ${lastLoad.label} → ${lastLoad.url}, controller=${lastLoad.controller}`);
+      }
+      const err = new Error(`${label}: ${URL_} failed twice (first: ${e.message} / again: ${e2.message}, controller=${sw})`);
+      err.name = 'NetworkError';
+      err.network = true;
+      throw err;
+    }
+  }
+}
+
+function goto(page, label) {
+  return withRetry(page, label, () => page.goto(URL_, NAV));
+}
+
+function reload(page, label) {
+  return withRetry(page, label, () => page.reload(NAV));
+}
+
 async function waitReady(page) {
-  await page.waitForFunction(
-    () => window.agent && typeof window.agent.exportBundle === 'function'
-      && window.agent.snapshot && window.agent.snapshot() !== null,
-    null,
-    { timeout: 20000 },
-  );
+  try {
+    await page.waitForFunction(
+      () => window.agent && typeof window.agent.exportBundle === 'function'
+        && window.agent.snapshot && window.agent.snapshot() !== null,
+      null,
+      { timeout: 20000 },
+    );
+  } catch (e) {
+    // A live origin can carry a build without M2 in it; say which it is.
+    const d = await page.evaluate(() => ({
+      agent: !!window.agent,
+      exportBundle: typeof window.agent?.exportBundle,
+    })).catch(() => null);
+    const err = new Error(`${e.message.split('\n')[0]} (window.agent=${d?.agent}, typeof exportBundle=${d?.exportBundle})`);
+    err.name = e.name;
+    throw err;
+  }
   await page.waitForFunction(() => {
     const t = document.getElementById('tree');
     return t && !t.textContent.includes('reading');
@@ -146,11 +225,20 @@ let importExportPath = null;
 let exported = null;
 let exportedBundle = null;
 
+// A block that cannot load its page cannot run its checks either; it reports
+// once, as a check, so the exit code stays honest and the reason is on screen.
+let blocking = null;
+function failedBlock(where, e) {
+  if (e.network) networkFails += 1;
+  blocking = e;
+  check(`${where}: ran to completion`, false, e.network ? `NET — ${e.message}` : `${e.name}: ${e.message}`);
+}
+
 // ---- profile A: a settled tree, then an export through the page's function ----
 {
   const { ctx, page } = await launch(profileA);
   try {
-    await page.goto(URL_, { waitUntil: 'load' });
+    await goto(page, 'profile A');
     await waitReady(page);
     for (const s of script) await page.evaluate((st) => window.agent.step(st), s);
     await page.evaluate(() => window.agent.replay());
@@ -194,6 +282,8 @@ let exportedBundle = null;
       parsed.v === 1 && sameJson(parsed.log, exported.records)
         && sameJson(parsed.tree, exported.treeRaw),
       `${text.length} characters from ${download.suggestedFilename()}`);
+  } catch (e) {
+    failedBlock('profile A (export)', e);
   } finally {
     await ctx.close();
     await rm(profileA, { recursive: true, force: true });
@@ -201,10 +291,10 @@ let exportedBundle = null;
 }
 
 // ---- profile B: empty, then import through the real textarea + button ----
-{
+if (!blocking) {
   const { ctx, page } = await launch(profileB);
   try {
-    await page.goto(URL_, { waitUntil: 'load' });
+    await goto(page, 'profile B');
     await waitReady(page);
     const empty = await capture(page);
     check('import target profile really has nothing',
@@ -302,7 +392,7 @@ let exportedBundle = null;
 
     // ---- offline reopen after import: the shell from the SW, the tree from OPFS ----
     await page.evaluate(async () => { await navigator.serviceWorker.ready; });
-    await page.reload({ waitUntil: 'load' });
+    await reload(page, 'profile B reload');
     await waitReady(page);
     const controlled = await page.evaluate(async () => {
       await navigator.serviceWorker.ready;
@@ -311,7 +401,10 @@ let exportedBundle = null;
     check('offline: the service worker is active', controlled === true, `active=${controlled}`);
     await page.waitForTimeout(500);
     await ctx.setOffline(true);
-    await page.reload({ waitUntil: 'load' });
+    // The offline reload is deliberately neither retried nor called a network
+    // failure: the network is off on purpose, so a hang here is the service
+    // worker's failure and stays a milestone failure.
+    await page.reload({ ...NAV });
     await waitReady(page);
     const offline = await capture(page);
     check('offline reopen after import boots the imported tree',
@@ -336,7 +429,7 @@ let exportedBundle = null;
       });
       Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });
     });
-    await spoof.goto(URL_, { waitUntil: 'load' });
+    await spoof.goto(URL_, { ...NAV });
     await waitReady(spoof);
     const st = await capture(spoof);
     check('container: the standalone branch names itself and the tab as different containers',
@@ -344,6 +437,8 @@ let exportedBundle = null;
         && /browser tab/.test(st.containerText) && /different container/.test(st.containerText),
       st.containerText.slice(0, 160));
     await spoof.close();
+  } catch (e) {
+    failedBlock('profile B (import)', e);
   } finally {
     await ctx.close();
     await rm(profileB, { recursive: true, force: true });
@@ -355,6 +450,7 @@ console.log(`  profile A (exporting): ${exportPath}`);
 console.log(`  profile B (importing): ${importExportPath}`);
 console.log('note: the standalone container branch was asserted by stubbing matchMedia/navigator.standalone;');
 console.log('      no phone or Home Screen was measured.');
+console.log(`network=${networkFails} retries=${retries}`);
 
 const failed = checks.filter((c) => !c.ok);
 console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`);

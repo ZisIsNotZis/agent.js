@@ -12,6 +12,10 @@
 // KILLS >= 2*STEPS. A mid-step kill commits the intent and then hangs on a test
 // hook, so the page dies exactly between intent and result — no timing race.
 //
+// The URL may be a live origin, so a load gets 60s and one retry; a load that
+// fails twice is counted as NET and never read as a resume failure. Exit is 0
+// only when every check passed, i.e. only when network=0.
+//
 // Playwright is found, not hard-coded, exactly as in probe-m1: bare
 // `playwright-core`, or PLAYWRIGHT_CORE pointing at an install; CHROME_PATH
 // overrides the executable.
@@ -42,6 +46,10 @@ const EXE = process.env.CHROME_PATH || undefined;
 const URL_ = process.env.URL || 'http://127.0.0.1:8137/';
 const STEPS = Number(process.env.STEPS || 8);
 const KILLS = Number(process.env.KILLS || 24);
+// A live origin is a shared CDN, not a local server: 24 fresh-profile loads
+// fired back to back is a burst the edge can stall on. The cadence is explicit
+// so a run's pressure on the origin is a number, not an accident.
+const CADENCE_MS = Number(process.env.CADENCE_MS ?? 2500);
 const SEED = Number(process.env.SEED || Math.floor(Math.random() * 1e9));
 
 // A tiny deterministic PRNG, so a failing seed can be run again verbatim.
@@ -77,6 +85,96 @@ const check = (name, ok, detail) => {
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A load is the one part of this probe that can fail for a reason that is not
+// the code: a live origin's CDN can be slow. Loads are patient once and retried
+// once, and a load that fails twice is reported as NET — never folded into
+// `consistent`, and never called a resume failure.
+const NAV = { timeout: 60_000, waitUntil: 'load' };
+
+let retries = 0;
+
+const isNetwork = (e) => e?.name === 'TimeoutError'
+  || /net::ERR_|ERR_CONNECTION|ERR_NAME_NOT_RESOLVED|ERR_INTERNET_DISCONNECTED|ERR_ABORTED/.test(e?.message || '');
+
+async function controlling(page) {
+  try {
+    return await Promise.race([
+      page.evaluate(() => navigator.serviceWorker.controller !== null),
+      sleep(5000).then(() => { throw new Error('no answer in 5s'); }),
+    ]);
+  } catch (e) {
+    return `unknown (${e.message.split('\n')[0]})`;
+  }
+}
+
+// The last load that got far enough to answer, so a page stuck mid-navigation
+// still reports what the SW was doing in that profile a moment earlier.
+let lastLoad = null;
+
+// goto with one retry. `label` names the attempt — a kill index, or the kill-free
+// baseline. A repeat failure at the same label prints the navigation's own words
+// and whether the SW was driving the page, then throws a NetworkError.
+async function goto(page, label) {
+  try {
+    const res = await page.goto(URL_, NAV);
+    lastLoad = { label, url: res?.url?.() ?? page.url(), controller: await controlling(page) };
+    return res;
+  } catch (e) {
+    if (!isNetwork(e)) throw e;
+    retries += 1;
+    console.log(`RETRY  ${label} — goto timed out, retrying`);
+    try {
+      const res = await page.goto(URL_, NAV);
+      lastLoad = { label, url: res?.url?.() ?? page.url(), controller: await controlling(page) };
+      return res;
+    } catch (e2) {
+      if (!isNetwork(e2)) throw e2;
+      const sw = await controlling(page);
+      console.log(`NET-DIAG  ${label} — first: ${e.message}`);
+      console.log(`NET-DIAG  ${label} — again: ${e2.message}`);
+      console.log(`NET-DIAG  ${label} — navigator.serviceWorker.controller !== null: ${sw}`);
+      if (lastLoad) {
+        console.log(`NET-DIAG  ${label} — last load that answered: ${lastLoad.label} → ${lastLoad.url}, controller=${lastLoad.controller}`);
+      }
+      const err = new Error(`goto ${URL_} failed twice (first: ${e.message} / again: ${e2.message}, controller=${sw})`);
+      err.name = 'NetworkError';
+      err.network = true;
+      throw err;
+    }
+  }
+}
+
+// Wait until the SW is active and driving this page: `sw.js` skips waiting and
+// claims its clients, so a controlled load appears without a reload.
+async function driven(page, ms = 15000) {
+  try {
+    await page.evaluate(async (t) => {
+      await Promise.race([
+        navigator.serviceWorker.ready,
+        new Promise((_, rej) => setTimeout(() => rej(new Error('no active SW')), t)),
+      ]);
+    }, ms);
+  } catch { /* the check below is the answer */ }
+  return (await controlling(page)) === true;
+}
+
+let cold = 0;
+
+// A load the service worker is not driving fetched the shell from the origin:
+// that is not a resume observation, so it is named COLD, the SW is given its
+// chance to take control, and the load happens once more — counted apart from
+// NET so neither can hide inside the other.
+async function loaded(page, label) {
+  await goto(page, label);
+  await waitReady(page);
+  if (await driven(page)) return;
+  cold += 1;
+  console.log(`COLD  ${label} — loaded with no service-worker controller; loading again once the SW controls the page`);
+  await goto(page, `${label} (cold again)`);
+  await waitReady(page);
+  if (!(await driven(page))) console.log(`COLD  ${label} — still uncontrolled after the second load`);
+}
 
 async function launch(userDataDir) {
   const ctx = await chromium.launchPersistentContext(userDataDir, {
@@ -133,8 +231,7 @@ async function killFreeRun() {
   const dir = await mkdtemp(join(tmpdir(), 'agentjs-m3-base-'));
   const { ctx, page } = await launch(dir);
   try {
-    await page.goto(URL_, { waitUntil: 'load' });
-    await waitReady(page);
+    await loaded(page, 'kill-free baseline');
     const prefixes = [];
     for (let i = 0; i < STEPS; i += 1) {
       await runStep(page, script[i]);
@@ -149,17 +246,35 @@ async function killFreeRun() {
   }
 }
 
-const baseline = await killFreeRun();
-check('kill-free run has one intent and one result per seq',
-  seqProblems(baseline.recs).length === 0,
-  seqProblems(baseline.recs).join('; ') || `${baseline.recs.length} records, seqs 1..${STEPS}`);
-
 const trials = [];
 let consistent = 0;
 let rerunNamed = 0;
 let midTrials = 0;
+let networkFails = 0;
+let midNet = 0;
+
+function finish() {
+  console.log(`\nN=${KILLS} kills=${KILLS} consistent=${consistent} rerun-named=${rerunNamed} network=${networkFails} cold=${cold}`);
+  console.log(`seed=${SEED} steps=${STEPS} mid-step kills=${midTrials} between-step kills=${KILLS - midTrials} retries=${retries} cadence=${CADENCE_MS}ms`);
+  const failed = checks.filter((x) => !x.ok);
+  console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`);
+  process.exit(failed.length ? 1 : 0);
+}
+
+let baseline;
+try {
+  baseline = await killFreeRun();
+} catch (e) {
+  if (e.network) networkFails += 1;
+  check('kill-free run', false, e.network ? `NET — ${e.message}` : `${e.name}: ${e.message}`);
+  finish();
+}
+check('kill-free run has one intent and one result per seq',
+  seqProblems(baseline.recs).length === 0,
+  seqProblems(baseline.recs).join('; ') || `${baseline.recs.length} records, seqs 1..${STEPS}`);
 
 for (let i = 0; i < KILLS; i += 1) {
+  if (i > 0) await sleep(CADENCE_MS);
   const { c, mid } = boundaries[i % boundaries.length];
   if (mid) midTrials += 1;
   const where = mid ? `after intent of step ${c}` : `after result of step ${c}`;
@@ -170,8 +285,7 @@ for (let i = 0; i < KILLS; i += 1) {
   try {
     let page;
     ({ ctx, page } = await launch(dir));
-    await page.goto(URL_, { waitUntil: 'load' });
-    await waitReady(page);
+    await loaded(page, `kill ${i + 1}/${KILLS}`);
 
     // Everything before the kill point runs normally.
     const doneBefore = mid ? c : c + 1;
@@ -193,8 +307,7 @@ for (let i = 0; i < KILLS; i += 1) {
 
     // Reopen the same profile: this is the resume.
     ({ ctx, page } = await launch(dir));
-    await page.goto(URL_, { waitUntil: 'load' });
-    await waitReady(page);
+    await loaded(page, `kill ${i + 1}/${KILLS} reopen`);
 
     const screen = await page.evaluate(() => ({
       text: document.getElementById('inflight').textContent,
@@ -230,7 +343,13 @@ for (let i = 0; i < KILLS; i += 1) {
       problems.push(`record count ${final.records} != ${baseline.recs.length}`);
     }
   } catch (e) {
-    problems.push(`${e.name}: ${e.message}`);
+    if (e.network) {
+      networkFails += 1;
+      if (mid) midNet += 1;
+      problems.push(`NET — ${e.message}`);
+    } else {
+      problems.push(`${e.name}: ${e.message}`);
+    }
   } finally {
     if (ctx) await ctx.close();
     await rm(dir, { recursive: true, force: true });
@@ -244,13 +363,14 @@ for (let i = 0; i < KILLS; i += 1) {
     ok, problems.join('; ') || (mid ? 'state matched, one re-run named' : 'state matched, nothing named'));
 }
 
-check('every reopen was consistent with the kill-free run', consistent === KILLS, `${consistent}/${KILLS}`);
-check('every mid-step kill named exactly one re-run', rerunNamed === midTrials,
-  `${rerunNamed}/${midTrials} mid-step kills`);
+const reached = KILLS - networkFails;
+check('every reopen was consistent with the kill-free run', consistent === reached,
+  `${consistent}/${reached} reopens that reached the page${networkFails ? `, ${networkFails} never got there (NET)` : ''}`);
+check('every mid-step kill named exactly one re-run', rerunNamed === midTrials - midNet,
+  `${rerunNamed}/${midTrials - midNet} mid-step kills${midNet ? `, ${midNet} NET` : ''}`);
+check('no load failed on the network', networkFails === 0,
+  networkFails ? `${networkFails} of ${KILLS} loads failed twice (NET)` : `${KILLS}/${KILLS} loads reached the page`);
+check('every load was driven by the service worker', cold === 0,
+  cold ? `${cold} loads loaded uncontrolled (COLD)` : 'the SW drove every load it was asked about');
 
-console.log(`\nN=${KILLS} kills=${KILLS} consistent=${consistent} rerun-named=${rerunNamed}`);
-console.log(`seed=${SEED} steps=${STEPS} mid-step kills=${midTrials} between-step kills=${KILLS - midTrials}`);
-
-const failed = checks.filter((x) => !x.ok);
-console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`);
-process.exit(failed.length ? 1 : 0);
+finish();
