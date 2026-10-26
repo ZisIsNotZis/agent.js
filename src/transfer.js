@@ -22,6 +22,7 @@
 import { append, readAll, clear as clearLog } from './log.js';
 import { replaySettled } from './run.js';
 import { boot, readState, writeState, clearState, NoOpfs } from './state.js';
+import { clearRunMarkers } from './exec.js';
 
 const V = 1;
 
@@ -182,8 +183,10 @@ export async function importBundle(text) {
 
   try {
     // The one deliberate path: both stores are cleared before anything is written.
+    // Run markers are keyed by seq, so they go with the ledger they belonged to.
     await clearLog();
     await clearState();
+    await clearRunMarkers();
 
     for (const rec of bundle.log) await append(rec);
     if (bundle.tree) await writeState(bundle.tree);

@@ -53,7 +53,7 @@ const URL_ = process.env.URL || 'http://127.0.0.1:8137/';
 // The shell list as a reader sees it in sw.js. The probe keeps its own copy on
 // purpose: an acceptance oracle that asks the code under test what to expect
 // cannot catch the code under test losing an entry.
-const CACHE = 'agentjs-shell-v5';
+const CACHE = 'agentjs-shell-v6';
 const SHELL = [
   './',
   './index.html',
@@ -64,6 +64,8 @@ const SHELL = [
   './src/run.js',
   './src/fs.js',
   './src/tools.js',
+  './src/exec.js',
+  './src/worker.js',
   './src/transfer.js',
   './vendor/isomorphic-git.min.js',
   './vendor/buffer.min.js',
@@ -155,6 +157,22 @@ const expectedPaths = SHELL.map(pathOf).sort();
 const namesMissing = (line, rel) => line.text.includes(rel.replace(/^\.\//, ''));
 
 try {
+  // The copy above is deliberately independent — it must not ask sw.js what to
+  // expect. But a stale copy is worse than a stale test: the day sw.js bumps the
+  // cache or gains an entry, this says so, instead of reporting a product defect.
+  const swSrc = await (await fetch(new URL('sw.js', URL_))).text();
+  const swCache = (swSrc.match(/const CACHE = '([^']+)'/) || [])[1];
+  const swBlock = (swSrc.match(/const SHELL = \[([\s\S]*?)\];/) || [])[1] || '';
+  const swEntries = [...swBlock.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  const cacheDiff = swCache === CACHE ? null : `cache ${swCache} vs ${CACHE}`;
+  const notInOracle = swEntries.filter((e) => !SHELL.includes(e));
+  const notInSW = SHELL.filter((e) => !swEntries.includes(e));
+  const agree = !cacheDiff && !notInOracle.length && !notInSW.length;
+  check('the probe\'s oracle agrees with sw.js', agree, agree
+    ? `${CACHE}, ${SHELL.length} entries`
+    : `${cacheDiff || 'cache agrees'}, missing from the oracle: ${notInOracle.join(', ') || 'none'}, `
+      + `missing from sw.js: ${notInSW.join(', ') || 'none'}`);
+
   let page;
   ({ context: ctx, page } = await launch());
 

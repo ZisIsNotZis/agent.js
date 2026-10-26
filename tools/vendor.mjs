@@ -8,6 +8,11 @@
 // what tools/bench-iogit/build.mjs measured: 270 KB / 82 KB gzip for git and
 // 28 KB / 8.7 KB gzip for the Buffer shim.
 //
+// TypeScript is the third bundle, and the one with a price: it is only fetched
+// from the page on the first `.ts`/`.tsx` run, so a workspace that never runs TS
+// never pays for it. The build prints its raw and gzip bytes because the tap's
+// price has to be a number, not a surprise.
+//
 //   node tools/vendor.mjs
 //
 // The pinned dependencies are installed into a temporary directory and removed
@@ -22,6 +27,7 @@ import { gzipSync } from 'node:zlib';
 const VERSIONS = {
   'isomorphic-git': '1.44.4',
   buffer: '6.0.3',
+  typescript: '5.9.3',
   esbuild: '0.28.2',
 };
 
@@ -31,6 +37,7 @@ const OUT = join(ROOT, 'vendor');
 const ENTRIES = {
   'isomorphic-git.min.js': "import * as git from 'isomorphic-git'\nexport { git }\nexport default git\n",
   'buffer.min.js': "export { Buffer } from 'buffer'\n",
+  'typescript.min.js': "import ts from 'typescript'\nexport { ts }\nexport default ts\n",
 };
 
 async function installDeps(dir) {
@@ -41,6 +48,7 @@ async function installDeps(dir) {
     dependencies: {
       'isomorphic-git': VERSIONS['isomorphic-git'],
       buffer: VERSIONS.buffer,
+      typescript: VERSIONS.typescript,
     },
     devDependencies: { esbuild: VERSIONS.esbuild },
   }, null, 2));
@@ -70,7 +78,7 @@ try {
     const gzip = gzipSync(raw, { level: 9 });
     console.log(`${name.padEnd(26)} ${raw.length} B  ${gzip.length} B gzip`);
   }
-  console.log(`wrote ${OUT}/ from isomorphic-git@${VERSIONS['isomorphic-git']} + buffer@${VERSIONS.buffer}`);
+  console.log(`wrote ${OUT}/ from isomorphic-git@${VERSIONS['isomorphic-git']} + buffer@${VERSIONS.buffer} + typescript@${VERSIONS.typescript}`);
 } finally {
   await rm(dir, { recursive: true, force: true });
 }

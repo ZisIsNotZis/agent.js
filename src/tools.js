@@ -14,8 +14,26 @@
 //
 // A step's commit is its effect: write the one file, stage that one path,
 // commit. `write` is the same write without the commit, for scaffolding.
+//
+// run_js is the first effect whose point is that code executes. It is treated
+// as non-idempotent even though a pure script invites the opposite assumption:
+// a kill mid-run must not silently execute the file a second time. The rule is
+// a non-replay rule plus a durable `done` marker in OPFS
+// (`agentjs-exec/<seq>.json`, written with the output after a run finishes):
+//   - marker `done`      -> replay takes the recorded output without executing
+//                           anything, so a kill between the effect and its
+//                           result loses nothing;
+//   - anything else      -> the page died somewhere after the intent was
+//                           recorded; replay records `interrupted` and never
+//                           executes the file again.
+// The rule is deliberately conservative: the intent is the only durable proof
+// that the run may have started, so an interrupted run is never repeated. The
+// cost is that a run killed before any code ran is also not retried, and an
+// interrupted run's output is lost; both are reported on screen, not hidden.
+// The marker lives beside the workspace, not inside git: a run is not a file.
 
 import { opfsFs } from './fs.js';
+import { DEFAULT_TIMEOUT_MS, readRunMarker, runScript, writeRunMarker } from './exec.js';
 
 const DIR = '/';
 const AUTHOR = { name: 'agent.js', email: 'agent@agent.js' };
@@ -62,6 +80,38 @@ export function makeTools(fsOf = getFs, gitOf = getGit) {
     const bytes = encoder.encode(text(args.content));
     await fs.write(args.path, bytes);
     return { op: 'write', path: args.path, bytes: bytes.length };
+  };
+
+  const langOf = (file) => (/\.tsx$/i.test(file) ? 'tsx'
+    : /\.[cm]?ts$/i.test(file) ? 'ts' : 'js');
+
+  const execRun = async (args, ctx) => {
+    const fs = await fsOf();
+    const file = args.path ?? '<source>';
+    const source = args.source != null
+      ? text(args.source)
+      : decoder.decode(await fs.read(args.path));
+    const lang = langOf(file);
+    const passed = args.args ?? null;
+    const timeoutMs = args.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+    const r = await runScript({ source, lang, file, args: passed, timeoutMs });
+    const out = {
+      op: 'exec',
+      seq: ctx.seq,
+      file,
+      lang,
+      stdout: r.stdout,
+      stderr: r.stderr,
+      exit: r.exit,
+      wallMs: Math.round(r.wallMs),
+      refusal: r.refusal,
+      tsBytes: r.tsBytes,
+      tsImports: r.tsImports,
+      error: r.error ? { name: r.error.name, message: r.error.message } : null,
+    };
+    await writeRunMarker(ctx.seq, { status: 'done', out });
+    return out;
   };
 
   const commitRun = async (args, ctx) => {
@@ -122,6 +172,37 @@ export function makeTools(fsOf = getFs, gitOf = getGit) {
         }
       },
       out: (args) => ({ op: 'write', path: args.path, bytes: encoder.encode(text(args.content)).length }),
+    },
+
+    run_js: {
+      run: execRun,
+      // Non-idempotent: an intent with no result is never executed a second
+      // time. check() is therefore always true, and out() decides: the `done`
+      // marker means the run finished and its output is recovered; anything
+      // else (no marker, or a half-written one) means it may have been running
+      // when the page died, so it is recorded `interrupted` and not repeated.
+      // The cost is named: a run killed just after its intent, before any code
+      // ran, is also not retried; the person runs it again deliberately.
+      check: () => true,
+      out: async (args, ctx) => {
+        const marker = await readRunMarker(ctx.seq);
+        if (marker?.status === 'done') return marker.out;
+        return {
+          op: 'exec',
+          seq: ctx.seq,
+          file: marker?.file ?? args.path ?? '<source>',
+          lang: marker?.lang ?? langOf(args.path ?? '<source>'),
+          stdout: '',
+          stderr: '',
+          exit: 'interrupted',
+          wallMs: 0,
+          refusal: null,
+          tsBytes: 0,
+          tsImports: 0,
+          error: null,
+          note: 'the run may have been executing when the page died; it was not run again',
+        };
+      },
     },
 
     git_commit: {

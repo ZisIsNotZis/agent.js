@@ -164,6 +164,26 @@ function renderInflight(replayed) {
   el.textContent = `in flight   seq ${f.seq} · ${f.tool}(${JSON.stringify(f.args)}) — ${what}`;
 }
 
+// What the last executed file did. stdout/stderr and the exit are the run's own
+// words; a refused TS file says which construct and which line, because the
+// boundary is a thing the person can see rather than a stack trace.
+function renderExec(out) {
+  const el = $('exec');
+  if (!el || !out || out.op !== 'exec') return;
+  el.dataset.exit = out.exit;
+  const lines = [`run        ${out.file} (${out.lang}) — exit ${out.exit}, ${out.wallMs} ms`];
+  if (out.refusal) {
+    lines.push(`refused    ${out.refusal.construct} at ${out.refusal.file}:${out.refusal.line}`
+      + ' — refused before type stripping; this file is not erasable TS');
+  }
+  if (out.note) lines.push(`note       ${out.note}`);
+  if (out.tsBytes) lines.push(`typescript ${out.tsBytes} bytes read on the tap that loaded it`);
+  if (out.stdout) lines.push('stdout', out.stdout.replace(/\n$/, ''));
+  if (out.stderr) lines.push('stderr', out.stderr.replace(/\n$/, ''));
+  else if (out.error) lines.push('stderr', `${out.error.name}: ${out.error.message}`);
+  el.textContent = lines.join('\n');
+}
+
 function renderTree(result, replayed) {
   const el = $('tree');
   if (!result) return;
@@ -267,10 +287,16 @@ async function main() {
     }
   });
 
+  window.addEventListener('agent:result', (e) => {
+    if (e.detail?.out?.op === 'exec') renderExec(e.detail.out);
+  });
+
   try {
     const replayed = await replaySettled();
     renderInflight(replayed);
     renderTree(await boot(replayed.state), replayed);
+    const lastRun = replayed.state.runs?.at(-1);
+    if (lastRun) renderExec(lastRun);
     await renderTransferInfo();
   } catch (e) {
     $('tree').textContent = e instanceof NoOpfs

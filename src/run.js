@@ -33,6 +33,7 @@ export function initial() {
     seqs: [],
     files: {},
     commits: [],
+    runs: [],
     head: null,
   };
 }
@@ -52,6 +53,19 @@ export function applyOut(state, out) {
   } else if (out.op === 'git_commit') {
     state.commits.push({ seq: out.seq, oid: out.oid, path: out.path, message: out.message });
     state.head = out.oid;
+  } else if (out.op === 'exec') {
+    state.runs.push({
+      op: 'exec',
+      seq: out.seq,
+      file: out.file,
+      lang: out.lang,
+      exit: out.exit,
+      stdout: out.stdout,
+      stderr: out.stderr,
+      refusal: out.refusal,
+      wallMs: out.wallMs,
+      note: out.note,
+    });
   } else if (out.op === 'read' || out.op === 'ls') {
     // Observations: recorded, nothing to fold.
   } else {
@@ -111,6 +125,10 @@ export async function step({ node, tool, args }) {
     const effectMs = now() - started;
     if (hold === 'after-effect') await never(); // killed after the effect, before its result
     await append({ kind: 'result', seq, ok: true, out, at: new Date().toISOString() });
+    // The screen reads the run from here; the log remains the truth it reads.
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('agent:result', { detail: { seq, out } }));
+    }
     return { seq, out, effectMs };
   });
 }
