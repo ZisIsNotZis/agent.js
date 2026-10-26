@@ -61,6 +61,8 @@ That is the person's convention as given on 2026-10-23, not an invention here: t
 Public, because Pages on a free account requires a public repository; the tree that goes up is this directory and nothing else, so no other project's work is exposed by it.
 The workspace pins this directory as a submodule pointing at that repository, which is why nothing here runs `git init` inside the workspace tree.
 
+**Push path, when the HTTPS one flaps (seen 2026-10-26).** `github.com` resolves to a single regional IPv4 here (`20.205.243.166`) whose TCP connect stalls for minutes while `140.82.112.x` answers immediately, so `git push` dies in `GnuTLS recv error (-110)` or a bare connect timeout and says nothing about why. The remote that works in that state is SSH on port 443 — `ssh://git@ssh.github.com:443/ZisIsNotZis/agent.js.git`, reachable at `140.82.112.36`, key-authenticated, same refs. It is registered in this clone as `sshpush`; push with `git push sshpush main` and move the tracking ref by hand (`git update-ref refs/remotes/origin/main <sha>`), because a push through a second remote does not update `origin/main`. Retrying HTTPS is the wrong response: it spends minutes per attempt on a path that is down.
+
 **M6 — execution: native JS in a Worker, then erasable TS — `open`.** Depends on M4.
 Outcome: the promise's first half. A file in the workspace is executed in a Worker with no shell and no licence.
 Deliverable: `run_js`; then type-stripping for the erasable subset with the unsupported constructs named on screen.
