@@ -21,7 +21,8 @@ A project of this workspace that must be reachable lives at `github.com/ZisIsNot
 
 Read `ROADMAP.md`, then the design record in `inbox/`.
 Run it locally: `node tools/serve.mjs` and open `http://127.0.0.1:8137/`.
-Run its acceptance: `node tools/probe-m1.mjs`, `node tools/probe-m2.mjs`, `node tools/probe-m3.mjs`, `node tools/probe-m4.mjs` and `node tools/probe-shell.mjs` (each needs the server up, or `URL=https://zisisnotzis.github.io/agent.js/` for the live origin; they need `playwright-core`, bare or at `PLAYWRIGHT_CORE`).
+Run its acceptance: `node tools/probe-m1.mjs`, `node tools/probe-m2.mjs`, `node tools/probe-m3.mjs`, `node tools/probe-m4.mjs` and `node tools/probe-shell.mjs` (each needs the server up, or `URL=https://zisisnotzis.github.io/agent.js/` for the live origin; they need `playwright-core`, bare or at `PLAYWRIGHT_CORE`; set `CHROME_PATH` when playwright's own browser is not installed).
+The two files in `vendor/` are build output that is committed, because the site must serve without a build step: `node tools/vendor.mjs` regenerates them from pinned versions and prints the sizes, and the file header says so too.
 
 ## How to continue
 
