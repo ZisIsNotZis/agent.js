@@ -37,7 +37,7 @@ Not doing: checkpoints, a continue button, model calls.
 
 **M4 — the first real agent step: one tool, one commit — `open`.** Depends on M3.
 Outcome: a step that writes a file to OPFS and commits it with `isomorphic-git`, so the diff exists before any model does.
-Deliverable: `fs` adapter over OPFS, `isomorphic-git` wired, `ls`/`read`/`write`/`git_commit`, a boot that replays them.
+Deliverable: `src/fs.js` (the adapter interface plus the OPFS implementation and the `promises` subset `isomorphic-git` binds), `src/tools.js` (`ls`/`read`/`write`/`git_commit`, each with a `check()`), `src/run.js` (the tools in the fold, `step()` timing, `replay()` resolving an interrupted commit by `git.log`), `tools/probe-m4.mjs`, and the committed bundles `vendor/isomorphic-git.min.js` + `vendor/buffer.min.js`. The bundles are build output but still files: **regenerate them with `node tools/vendor.mjs`** (pinned `isomorphic-git@1.44.4` + `buffer@6.0.3`, installed into a temp dir and removed; prints the sizes). The file header carries the same instruction.
 Acceptance: a scripted two-step run produces two commits; `git log` read back through `isomorphic-git` in the page shows both after a kill and reopen. The per-step budget is already measured, so it is part of the acceptance rather than a later discovery: **0.25–0.49 s at 1k files, 3.0–4.1 s at 10k**, bundle **91 KB gzip** including the `Buffer` shim (`tools/bench-iogit/REPORT.md`); a step that runs a full `status` instead of committing one path is out of budget by 20× at 10k and is a defect, not slow.
 Not doing: grep, patch, push, TS, Python.
 

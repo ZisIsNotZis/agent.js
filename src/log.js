@@ -118,11 +118,12 @@ export async function nextSeq() {
 
 // fold = {
 //   initial() -> state
-//   run(tool, args) -> out                 the effect, re-run on resume
-//   check(tool, state, args) -> bool       optional: is the effect already settled?
-//   out(tool, args) -> out                 the out to record when check() says yes
+//   run(tool, args, ctx) -> out            the effect, re-run on resume
+//   check(tool, state, args, ctx) -> bool  optional: is the effect already settled?
+//   out(tool, args, ctx) -> out            the out to record when check() says yes
 //   apply(state, result) -> void           fold one settled result into state
 // }
+// fold.run/check/out may be async: git_commit's check reads git.log.
 export async function replay(fold) {
   const records = await readAll();
   const intents = new Map();
@@ -137,8 +138,11 @@ export async function replay(fold) {
     const intent = intents.get(seq);
     let result = results.get(seq);
     if (!result) {
-      const settled = fold.check ? fold.check(intent.tool, state, intent.args) : false;
-      const out = settled ? fold.out(intent.tool, intent.args) : await fold.run(intent.tool, intent.args);
+      const ctx = { seq, node: intent.node };
+      const settled = fold.check ? await fold.check(intent.tool, state, intent.args, ctx) : false;
+      const out = settled
+        ? await fold.out(intent.tool, intent.args, ctx)
+        : await fold.run(intent.tool, intent.args, ctx);
       result = { kind: 'result', seq, ok: true, out, at: new Date().toISOString() };
       await append(result);
       rerun.push({

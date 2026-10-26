@@ -1,15 +1,18 @@
 // The scripted step driver, shared by the page and the probe.
 //
-// A step is: intent -> effect -> result. The effect is a pure patch over the
-// settled state, so re-running the step after a kill is always safe, and the
-// log's result is the only thing that makes the effect real.
+// A step is: intent -> effect -> result. The log's result is the only thing
+// that makes the effect real, so a kill between intent and result is resolved
+// by *checking* whether the effect already landed. For a git commit that is the
+// third phrase replay() has: `git.log` says the commit for this seq exists, so
+// nothing is re-committed and the commit count does not grow.
 //
-// The tool set is deliberately tiny and in-file for this milestone: no model,
-// no fs write beyond the log, no git. M4 swaps in the real tools underneath the
-// same step/1 shape.
+// The M3 tools (add_node/set_status) stay as pure in-file patches; M4 adds the
+// real tools from src/tools.js underneath the same step/1 shape.
 
 import { append, nextSeq, readAll, replay as replayLog } from './log.js';
+import { TOOLS as FS_TOOLS, getFs, getGit } from './tools.js';
 
+// The M3 in-file patches stay; M4's real tools sit in the same table.
 export const TOOLS = {
   add_node: {
     run: (args) => ({ op: 'add_node', id: args.id, parent: args.parent ?? null }),
@@ -19,12 +22,18 @@ export const TOOLS = {
     run: (args) => ({ op: 'set_status', node: args.node, status: args.status }),
     check: (state, args) => state.nodes[args.node]?.status === args.status,
   },
+  ...FS_TOOLS,
 };
+
+export { getFs, getGit };
 
 export function initial() {
   return {
     nodes: { root: { id: 'root', parent: null, status: 'idle' } },
     seqs: [],
+    files: {},
+    commits: [],
+    head: null,
   };
 }
 
@@ -38,6 +47,13 @@ export function applyOut(state, out) {
   } else if (out.op === 'set_status') {
     const prev = state.nodes[out.node];
     state.nodes[out.node] = { id: out.node, parent: prev?.parent ?? null, status: out.status };
+  } else if (out.op === 'write') {
+    state.files[out.path] = out.bytes;
+  } else if (out.op === 'git_commit') {
+    state.commits.push({ seq: out.seq, oid: out.oid, path: out.path, message: out.message });
+    state.head = out.oid;
+  } else if (out.op === 'read' || out.op === 'ls') {
+    // Observations: recorded, nothing to fold.
   } else {
     throw new Error(`unknown patch op ${out.op}`);
   }
@@ -45,16 +61,17 @@ export function applyOut(state, out) {
 
 const fold = {
   initial,
-  run(tool, args) {
+  run(tool, args, ctx) {
     const t = TOOLS[tool];
     if (!t) throw new Error(`unknown tool ${tool}`);
-    return t.run(args);
+    return t.run(args, ctx);
   },
-  check(tool, state, args) {
-    return Boolean(TOOLS[tool]?.check?.(state, args));
+  check(tool, state, args, ctx) {
+    return Boolean(TOOLS[tool]?.check?.(state, args, ctx));
   },
-  out(tool, args) {
-    return TOOLS[tool].run(args);
+  out(tool, args, ctx) {
+    const t = TOOLS[tool];
+    return t.out ? t.out(args, ctx) : t.run(args, ctx);
   },
   apply(state, result) {
     applyOut(state, result.out);
@@ -71,11 +88,14 @@ function locked(fn) {
   return navigator.locks.request(LOCK, fn);
 }
 
+const never = () => new Promise(() => {});
+const now = () => (globalThis.performance?.now?.() ?? Date.now());
+
+// Test hook, not used by the product path. 'after-intent' hangs between the
+// intent and the effect; 'after-effect' hangs between the effect and its
+// result, which is the kill that only check() can resolve.
 let hold = null;
 
-// Test hook: 'after-intent' makes the next step commit its intent and then stop,
-// so a probe can kill the page exactly between intent and result. It is not used
-// by the product path.
 export function holdAt(phase) {
   hold = phase;
 }
@@ -84,10 +104,14 @@ export async function step({ node, tool, args }) {
   return locked(async () => {
     const seq = await nextSeq();
     await append({ kind: 'intent', seq, node, tool, args });
-    if (hold === 'after-intent') await new Promise(() => {}); // the page is killed here
-    const out = fold.run(tool, args);
+    const ctx = { seq, node };
+    if (hold === 'after-intent') await never(); // the page is killed here
+    const started = now();
+    const out = await fold.run(tool, args, ctx);
+    const effectMs = now() - started;
+    if (hold === 'after-effect') await never(); // killed after the effect, before its result
     await append({ kind: 'result', seq, ok: true, out, at: new Date().toISOString() });
-    return { seq, out };
+    return { seq, out, effectMs };
   });
 }
 
@@ -109,6 +133,23 @@ export function records() {
   return readAll();
 }
 
+// The probe's read-back: commits as isomorphic-git sees them in the page, not
+// as the log remembers them.
+export async function gitLog() {
+  const fs = await getFs();
+  const git = await getGit();
+  return git.log({ fs, dir: '/', depth: Infinity });
+}
+
 if (typeof window !== 'undefined') {
-  window.agent = { step, replay: replaySettled, records, snapshot, holdAt };
+  window.agent = {
+    step,
+    replay: replaySettled,
+    records,
+    snapshot,
+    holdAt,
+    gitLog,
+    getFs,
+    getGit,
+  };
 }
