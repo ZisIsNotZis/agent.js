@@ -33,6 +33,80 @@ function renderContainer() {
       + '(ITP) — export to keep the workspace, or add to Home Screen and import it there.';
 }
 
+// Whether this load is driven by the service worker, and which shell entries are
+// not in its cache. The worker answers the second from Cache Storage; the first
+// is navigator.serviceWorker.controller, the thing itself.
+function controllerSettled(ms = 10000) {
+  if (navigator.serviceWorker.controller) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(navigator.serviceWorker.controller !== null), ms);
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      clearTimeout(timer);
+      resolve(true);
+    }, { once: true });
+  });
+}
+
+function askShell(worker, ms = 15000) {
+  return new Promise((resolve, reject) => {
+    if (!worker) {
+      reject(new Error('no active worker'));
+      return;
+    }
+    const ch = new MessageChannel();
+    const timer = setTimeout(() => {
+      ch.port1.close();
+      reject(new Error(`no answer in ${ms} ms`));
+    }, ms);
+    ch.port1.onmessage = (e) => {
+      clearTimeout(timer);
+      resolve(e.data);
+    };
+    worker.postMessage({ type: 'shell-status' }, [ch.port2]);
+  });
+}
+
+async function renderShell() {
+  const el = $('shell');
+  const drivenWord = (driven) => (driven
+    ? 'driven by the service worker'
+    : 'not driven by a service worker on this load');
+  const show = (driven, missing, note = '') => {
+    el.dataset.driven = String(driven);
+    if (missing === null) {
+      el.dataset.missing = 'unknown';
+      el.textContent = `shell      ${drivenWord(driven)} — the manifest could not be read${note}`;
+      return;
+    }
+    el.dataset.missing = missing.join(',');
+    const list = missing.length
+      ? `missing ${missing.join(', ')} — retried on this load and on the next`
+      : 'every shell entry is cached';
+    el.textContent = `shell      ${drivenWord(driven)} — ${list}${note}`;
+  };
+  if (!('serviceWorker' in navigator)) {
+    show(false, null, ' (no service worker in this browser)');
+    return;
+  }
+  let reg;
+  try {
+    reg = await navigator.serviceWorker.ready;
+  } catch (e) {
+    show(false, null, ` (no active registration: ${e.name})`);
+    return;
+  }
+  const driven = await controllerSettled();
+  const worker = navigator.serviceWorker.controller || reg.active;
+  let state;
+  try {
+    state = await askShell(worker);
+  } catch (e) {
+    show(driven, null, `: ${e.message}`);
+    return;
+  }
+  show(driven, state && Array.isArray(state.missing) ? state.missing : null);
+}
+
 function setStatus(text, status = 'idle') {
   const el = $('transfer-status');
   el.dataset.status = status;
@@ -113,6 +187,13 @@ async function main() {
 
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
+    renderShell().catch((e) => {
+      const el = $('shell');
+      el.dataset.driven = 'unknown';
+      el.textContent = `shell      could not be read: ${e.name}: ${e.message}`;
+    });
+  } else {
+    renderShell();
   }
 
   $('persist').addEventListener('click', async () => {
