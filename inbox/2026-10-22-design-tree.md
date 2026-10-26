@@ -20,7 +20,7 @@ The cost is stated rather than discovered: the home-screen container and the Saf
 Chrome prompts for nothing and evicts under disk pressure rather than on a timer, so **the promise follows `navigator.storage.persisted()`**, read at load: `true` says "will not be evicted", `false` says "may be evicted, export".
 Acceptance line, observable: add to Home Screen, cut the network, kill the app, reopen, and the tree is still there with the `persisted()` reading agreeing with what the screen claims.
 Measured 2026-10-23 on a desktop Chromium profile (`tools/probe-m1.mjs`, 13/13): first load writes, reload finds it, a browser restart finds it, an offline reopen finds it, and the claim equals the return value in both directions.
-Not yet measured: the same on an iPhone Home Screen, which is the next observation and the one that actually carries the promise.
+Not yet measured, and deferred by the person on 2026-10-26 ("no need phone (for now)"): the same on an iPhone Home Screen. That observation is the one that actually carries the promise, so the promise stands as written and unconfirmed rather than weakened — what waits is the device, not the design, and no milestone after M1 depends on it.
 
 **Execution is JS natively plus erasable-syntax TS, with git in the tab; Python is a lazy opt-in outside the promise.**
 JS runs natively in a Worker — no compiler, no licence, no server.

@@ -17,12 +17,13 @@ Degree: `decide` (assumed); every decision taken under it is marked in the desig
 | not doing | no agent loop, no model call, no token field, no git, no editor, no diff view, no tree diagram, no import/export |
 
 Measured on desktop Chromium only.
-The Home Screen itself — iOS, where the 7-day rule and the container split actually live — is **not** measured, so M1 is done as a mechanism and unproven as a promise on the device that carries it.
+The Home Screen itself — iOS, where the 7-day rule and the container split actually live — is **not** measured. The person deferred that observation on 2026-10-26 ("no need phone (for now)"); deferred is not withdrawn, so the Home Screen stays the container the promise is written for and M1 is accepted on the browser evidence the probe prints, with the device observation waiting on the person rather than on the work.
 
 ## Next, in order (edges are precedence; siblings without an edge run in parallel)
 
 **M2 — export, import, and the container split — `open`.** Depends on M1.
 Outcome: a person who signs in on a tab and taps the icon is not met by an empty workspace, and a person whose data is about to be evicted can take it out.
+Since the person deferred the phone on 2026-10-26, only the eviction half is judged now; the container half is built because it is the same file format and the same button, and it is proven when a phone appears.
 Deliverable: one JSON export of `.agentjs/` plus a share-sheet download, and one import that replaces the tree.
 Acceptance: `node tools/probe-m2.mjs` — export in a tab, import in a profile that has nothing, boots/created/nodes match; and the Home Screen/ tab distinction is on screen in both containers.
 Not doing: partial merges, account sync, encryption theatre.
@@ -42,14 +43,15 @@ Not doing: grep, patch, push, TS, Python.
 **M5 — the served copy — `done`, 2026-10-23.** Depends on M1 only.
 Outcome: the URL a person can add to the Home Screen, and the only place the promise can be observed.
 Deliverable: this tree served by GitHub Pages from the public repository `github.com/ZisIsNotZis/agent.js`, default branch, no server of ours and no build step.
-Acceptance: `curl -sI https://zisisnotzis.github.io/agent.js/manifest.webmanifest` returns 200 and `application/manifest+json` (seen 2026-10-23); the M1 probe run against the live origin prints 13/13 (seen 2026-10-23, commit `0fcfcb5`); and the phone steps are **not yet run**.
+Acceptance: `curl -sI https://zisisnotzis.github.io/agent.js/manifest.webmanifest` returns 200 and `application/manifest+json` (seen 2026-10-23); the M1 probe run against the live origin prints 13/13 (seen 2026-10-23, commit `0fcfcb5`). The phone steps are deferred by the person, 2026-10-26, and are not part of this node's acceptance.
 Not doing: any origin server, any telemetry, any credential of ours.
 
-## The one step still unrun, and who runs it
+## Deferred: the Home Screen observation, and who runs it
 
 Everything M1 claims is measured on desktop Chromium, locally and on the live origin.
-The device that carries the promise has never opened it, so the promise is unconfirmed rather than proven.
-The list is written for the person, in the order they do it, and root puts it in front of them; the report in `mail/2026-10-23-pages-and-the-phone-checklist.md` is where it lives.
+The device that carries the promise has never opened it, so the promise is unconfirmed rather than disproved — and the person said on 2026-10-26 that a phone is not needed for now.
+Nothing waits on it: M2 onward are judged on a desktop profile, which is why they were ordered behind M1 rather than behind the device.
+When the person has a phone in hand, the ten steps are already written in the order they are done and stay there — `mail/2026-10-23-pages-and-the-phone-checklist.md`.
 
 ## Convention: where a project of this workspace is reachable
 
