@@ -12,7 +12,7 @@
 //   4. with the shell complete, a normal load reaches the network zero times:
 //      the repair costs nothing on the happy path. The count is printed.
 //
-// Run: node tools/serve.mjs &   then   node tools/probe-m5.mjs
+// Run: node tools/serve.mjs &   then   node tools/probe-shell.mjs
 // The server must already be on PORT (default 8137).
 //
 // Playwright is found, not hard-coded, exactly as in probe-m1/m3/m4: bare
