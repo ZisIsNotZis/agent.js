@@ -21,12 +21,12 @@ The Home Screen itself — iOS, where the 7-day rule and the container split act
 
 ## Next, in order (edges are precedence; siblings without an edge run in parallel)
 
-**M2 — export, import, and the container split — `open`.** Depends on M1.
+**M2 — export, import, and the container split — `done`, 2026-10-26, commit `3f9fe5f`.** Depends on M1.
 Outcome: a person who signs in on a tab and taps the icon is not met by an empty workspace, and a person whose data is about to be evicted can take it out.
 Since the person deferred the phone on 2026-10-26, only the eviction half is judged now; the container half is built because it is the same file format and the same button, and it is proven when a phone appears.
-Deliverable: one JSON export of `.agentjs/` plus a share-sheet download, and one import that replaces the tree.
-Acceptance: `node tools/probe-m2.mjs` — export in a tab, import in a profile that has nothing, boots/created/nodes match; and the Home Screen/ tab distinction is on screen in both containers.
-Not doing: partial merges, account sync, encryption theatre.
+Deliverable: `src/transfer.js` — one `{v:1, exportedAt, origin, persisted, tree, log, brief}` JSON where `log` is the ledger verbatim and `tree` the OPFS cache; `navigator.share` with a `File` where available and `<a download>` otherwise; import from a file input or a pasted textarea that validates before touching anything, replaces both stores, replays the log, and re-reads to verify; the Export/Import controls and the container line; `tools/probe-m2.mjs`.
+Acceptance: `node tools/probe-m2.mjs` → 27/27: the descending profile exports the page's 12 records and its tree; a fresh `mkdtemp` profile with no OPFS and no IndexedDB imports them, matching `created`, `boots`, nodes/statuses and log, and replay finds nothing in flight; a wrong `v`, a result with no intent and a duplicated seq are each refused on screen with the bytes on disk unchanged; a tab says it is a tab and names the icon as a different container; an offline reopen after import boots the imported tree. The standalone branch was asserted by stubbing `matchMedia`/`navigator.standalone` and that is what the probe prints — no phone was measured.
+Not doing: partial merges, account sync, encryption theatre, compression, a model call, any new dependency.
 
 **M3 — the log, and resume with nothing in memory — `done`, 2026-10-26, commit `d2ecbfa`.** Depends on M1.
 Outcome: a kill mid-step costs at most the step. The tree on reopen is reconstructed from the append-only log, not from a snapshot.
