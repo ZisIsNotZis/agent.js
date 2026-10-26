@@ -52,12 +52,23 @@ function fresh() {
 // One boot: read what is on disk, count it, write it back, then read it again.
 // The value returned as `verified` is what a *second* read of the file says —
 // that is the evidence the write landed, not the memory of having asked.
-export async function boot() {
+//
+// Since M3 this file is a cache: `settled` is the state folded from the log, and
+// the boot count here is the only thing that is still this file's own.
+export async function boot(settled) {
   const before = await readState();
   const state = before ? before.state : fresh();
   state.boots = (state.boots || 0) + 1;
   state.lastSeen = new Date().toISOString();
   state.bootsLog = (state.bootsLog || []).concat([{ n: state.boots, at: state.lastSeen }]).slice(-50);
+  if (settled) {
+    state.nodes = Object.values(settled.nodes).map((n) => ({
+      id: n.id,
+      parent: n.parent,
+      status: n.status,
+    }));
+    state.log = { seqs: settled.seqs.length, lastSeq: settled.seqs.at(-1) ?? 0 };
+  }
   const bytesWritten = await writeState(state);
   const after = await readState();
   return {

@@ -1,13 +1,15 @@
 // The shell, so that reopening the icon with no network still shows the tree.
 // Versions are bumped by hand; the shell is small enough that a hand-kept list
 // is cheaper than a build step.
-const CACHE = 'agentjs-shell-v1';
+const CACHE = 'agentjs-shell-v2';
 const SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './src/app.js',
   './src/state.js',
+  './src/log.js',
+  './src/run.js',
   './icon-192.png',
   './icon-512.png',
 ];

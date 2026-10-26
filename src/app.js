@@ -4,6 +4,7 @@
 // plus the tree, which is whatever OPFS gave back on this load.
 
 import { boot, NoOpfs } from './state.js';
+import { replaySettled } from './run.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -51,7 +52,22 @@ async function renderPersistence() {
       + 'Add to Home Screen, reopen from the icon, and ask again.'));
 }
 
-function renderTree(result) {
+function renderInflight(replayed) {
+  const el = $('inflight');
+  const f = replayed.inFlight;
+  if (!f) {
+    el.dataset.inflight = 'none';
+    el.textContent = 'in flight   nothing was in flight — the log\u2019s tail is settled';
+    return;
+  }
+  el.dataset.inflight = `seq:${f.seq}`;
+  const what = f.action === 'already settled'
+    ? 'found it already settled; its result was appended exactly once'
+    : 're-ran it (pure, idempotent); its result was appended exactly once';
+  el.textContent = `in flight   seq ${f.seq} · ${f.tool}(${JSON.stringify(f.args)}) — ${what}`;
+}
+
+function renderTree(result, replayed) {
   const el = $('tree');
   if (!result) return;
   const s = result.verified;
@@ -62,6 +78,7 @@ function renderTree(result) {
     `created    ${s.created}`,
     `boots      ${s.boots}${result.fresh ? '  (this load created the file)' : ''}`,
     `lastSeen   ${s.lastSeen}`,
+    `log        ${replayed.records} records, last seq ${replayed.lastSeq}`,
     `nodes      ${s.nodes.map((n) => `${n.id}(${n.status})`).join(', ')}`,
     `read-back  ${agree ? 'agrees with what was written' : 'DISAGREES — do not trust the numbers above'}`,
   ].join('\n');
@@ -92,7 +109,9 @@ async function main() {
       + 'iOS 26+ opens any Home Screen site as a web app; the manifest is for older iOS and for Chrome.';
 
   try {
-    renderTree(await boot());
+    const replayed = await replaySettled();
+    renderInflight(replayed);
+    renderTree(await boot(replayed.state), replayed);
   } catch (e) {
     $('tree').textContent = e instanceof NoOpfs
       ? `no OPFS here (${e.message}) — nothing is stored, so nothing survives a kill`
