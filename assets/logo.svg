@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 40" width="200" height="40" role="img" aria-label="agent.js">
+  <!-- The mark is the product: one root node, the two children it spawned, and
+       the edges between them, drawn in a single stroke weight. -->
+  <g stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none">
+    <path d="M11 20h7M18 20 29 10M18 20l11 10"/>
+    <circle cx="9" cy="20" r="4.5" fill="currentColor"/>
+    <circle cx="31" cy="9" r="3.5" fill="currentColor"/>
+    <circle cx="31" cy="31" r="3.5" fill="currentColor"/>
+  </g>
+  <text x="45" y="27.5" fill="currentColor"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+        font-size="20" letter-spacing="-0.4">agent.js</text>
+</svg>
