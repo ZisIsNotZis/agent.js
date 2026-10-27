@@ -53,7 +53,7 @@ const URL_ = process.env.URL || 'http://127.0.0.1:8137/';
 // The shell list as a reader sees it in sw.js. The probe keeps its own copy on
 // purpose: an acceptance oracle that asks the code under test what to expect
 // cannot catch the code under test losing an entry.
-const CACHE = 'agentjs-shell-v6';
+const CACHE = 'agentjs-shell-v7';
 const SHELL = [
   './',
   './index.html',
@@ -67,6 +67,9 @@ const SHELL = [
   './src/exec.js',
   './src/worker.js',
   './src/transfer.js',
+  './src/loop.js',
+  './src/provider.js',
+  './src/trace.js',
   './vendor/isomorphic-git.min.js',
   './vendor/buffer.min.js',
   './icon-192.png',

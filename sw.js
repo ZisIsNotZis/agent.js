@@ -17,7 +17,7 @@
 //
 // Bump CACHE whenever SHELL changes: the manifest is the cache's contents, and
 // an old cache must never be read as a complete new shell.
-const CACHE = 'agentjs-shell-v6';
+const CACHE = 'agentjs-shell-v7';
 const ENTRY_TIMEOUT_MS = 5000;
 const SHELL = [
   './',
@@ -32,6 +32,9 @@ const SHELL = [
   './src/exec.js',
   './src/worker.js',
   './src/transfer.js',
+  './src/loop.js',
+  './src/provider.js',
+  './src/trace.js',
   './vendor/isomorphic-git.min.js',
   './vendor/buffer.min.js',
   './icon-192.png',
