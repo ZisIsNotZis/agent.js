@@ -15,7 +15,18 @@
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; padding: 20px 18px 48px; font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
-         background: #101014; color: #e6e6ec; max-width: 44rem; }
+         background: #101014; color: #e6e6ec; max-width: 76rem; }
+  .panels { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; margin: 0 0 16px; }
+  .panel { min-width: 0; }
+  #tree-nodes { list-style: none; padding: 0; margin: 0 0 12px; font-size: 13px; }
+  #tree-nodes li { padding: 3px 6px; border-left: 2px solid #3a3a46; margin: 2px 0; cursor: pointer;
+                   white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  #tree-nodes li[data-selected="true"] { border-color: #5a8fd6; background: #1b2230; }
+  #timeline { list-style: none; padding: 0; margin: 0; max-height: 20em; overflow: auto; font-size: 12px; }
+  #timeline li { padding: 2px 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #timeline li[data-selected="true"] { background: #1b2230; }
+  #diff { max-height: 24em; overflow: auto; }
+  @media (max-width: 760px) { .panels { grid-template-columns: minmax(0, 1fr); } }
   h1 { font-size: 18px; margin: 0 0 14px; letter-spacing: .04em; }
   p { margin: 0 0 10px; }
   .k { color: #8b8b9a; }
@@ -37,13 +48,28 @@
 </style>
 </head>
 <body>
-<h1>agent.js — milestone 2</h1>
+<h1>agent.js</h1>
 
 <p id="container" data-standalone="unknown"></p>
 
 <p id="claim" data-persisted="unknown">
   <span class="k">navigator.storage.persisted():</span> <span id="persisted-value">reading…</span>
 </p>
+
+<div class="panels">
+<section class="panel">
+  <p><span class="k">tree — every node, edge, status and step count read from the log:</span></p>
+  <ul id="tree-nodes"><li>reading…</li></ul>
+  <p><span class="k">diff — <span id="diff-label">nothing selected</span></span></p>
+  <pre id="diff">nothing selected</pre>
+  <p><span class="k">timeline — every log record, in order; click one to select its node and diff</span></p>
+  <ol id="timeline"><li>reading…</li></ol>
+</section>
+<section class="panel">
+  <p><span class="k">transcript — the last run's turns and tool calls</span></p>
+  <pre id="run-transcript">no turns yet</pre>
+</section>
+</div>
 
 <p><span class="k">what is on disk now, read back from OPFS:</span></p>
 <pre id="tree">reading…</pre>
@@ -56,6 +82,19 @@
 <p id="shell" data-driven="unknown" data-missing="unknown">shell      reading…</p>
 
 <p><button id="persist">Ask the browser to keep this origin's data</button></p>
+
+<p><span class="k">run</span> — your endpoint, your model, your key. The key is kept in this page's memory only (no storage, no URL, no log) and Forget clears it.</p>
+<p>endpoint <input type="text" id="base-url" spellcheck="false" placeholder="http://127.0.0.1:8138/v1">
+   model <input type="text" id="model-name" spellcheck="false" placeholder="model name">
+   key <input type="password" id="key-input" spellcheck="false" placeholder="paste key">
+   <button id="key-set">Use key</button> <button id="key-forget">Forget key</button></p>
+<p id="key-status" data-has-key="false">key        not set — a run with no key sends nothing</p>
+<p><textarea id="prompt" spellcheck="false" placeholder="what should the agent change?"></textarea>
+   <button id="send">Send</button> <button id="export-trace">Export trajectory</button></p>
+<p><span class="k">run status</span></p>
+<pre id="run-status">idle — nothing has run on this load</pre>
+<p><span class="k">usage, exactly as the provider returned it</span></p>
+<pre id="usage">none yet</pre>
 
 <p><span class="k">export</span> <span id="export-info">reading the ledger and the tree…</span></p>
 <p><button id="export">Export workspace</button></p>
