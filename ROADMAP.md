@@ -5,6 +5,26 @@ The goal is the design record's: a coding agent that runs in a tab, needs no ser
 Two promises bound it (root, 2026-10-23, `inbox/2026-10-22-design-tree.md`): durability for the site added to the Home Screen, and execution as native JS plus erasable-syntax TS with git in the tab.
 Degree: `decide` (assumed); every decision taken under it is marked in the design record.
 
+## The one milestone, and the worksets inside it
+
+A milestone is **the deliverable a person judges**, not a stage of building. Calling M1…M9 milestones was a misuse of the word and it scattered the goal across ten headings; it is corrected here, once, and the old labels survive only as aliases so that old commits and mail still read.
+
+**The milestone — `open`, `need_user_review`.** A person opens the URL, pastes their own token, points at a workspace, says what to change, and watches a tree of work happen: files change, every step is a commit, the diff is visible, and killing the tab at any moment costs at most the step that was in flight. No server of ours at any point. What makes it a milestone is that its acceptance is the person's judgement of a working thing, and its evidence is a recorded trajectory, not my opinion.
+
+| workset | was called | state | what it made true |
+|---|---|---|---|
+| W1 durability + the served copy | M1, M5 | done | the tree survives a kill; a URL serves it with no build step |
+| W2 the log | M3 | done | the log is the truth; a kill mid-step costs that step |
+| W3 export / import | M2 | done | the workspace leaves as one JSON file and comes back exact |
+| W4 files, git, one commit per step | M4 | done | a step writes a file and commits it; an interrupted commit is checked, not repeated |
+| W5 execution | M6 | done | JS runs in a Worker, erasable TS runs, the rest is refused by name |
+| W6 the shell that installs entry by entry | WP-shell | done | one bad fetch costs one entry, and it refills on the next load |
+| W7 the loop, with a mock | was M7 | open | typing a request produces tool calls that are executed and committed |
+| W8 the tree, as itself | was M9 | open | the interface a person judges: nodes, statuses, diffs, timeline |
+| W9 the trajectory | new | open | every run leaves a recorded trace, so a red run is debugged from evidence instead of by re-running |
+
+**What is missing from the milestone, named plainly:** there is no token field, no prompt, no model call, no tree view and no diff on screen today. Everything behind them exists and is green; the face does not.
+
 ## Now
 
 **M1 — the tree survives a kill on a device where it was added to the Home Screen. — `done`, 2026-10-23, commit `c40b543`.**
