@@ -20,6 +20,13 @@
 //
 // The boot fold refuses to resolve a model_call (src/log.js `defer`): the key is
 // memory-only, so re-issuing belongs here, once, with the person's key in hand.
+//
+// The tree is the run, not a decoration: the model declares its work with the
+// `plan` tool and every other tool call is `step()`ed on the item the plan says
+// is running, so a node's step count, its commits and its status are the log's
+// own facts. The loop holds no plan of its own — `planItems()` below folds it
+// from the records, and a step's node is recomputed from the log after each
+// `plan` call.
 
 import { append, nextSeq, onAppend, readAll } from './log.js';
 import { step, replaySettled, getFs, getGit } from './run.js';
@@ -31,6 +38,34 @@ const MAX_TURNS = 16;
 // The provider's tools, in OpenAI's shape. Names must be the tool names in
 // src/run.js, so the request and the executor have one vocabulary.
 const TOOL_DEFS = [
+  {
+    type: 'function',
+    function: {
+      name: 'plan',
+      description: 'Declare or advance the work items you are doing. Upserts the items you name; '
+        + 'the item whose status is "running" is the one the next tool call lands on. Call it '
+        + 'before the first change and again as each item starts and finishes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                id: { type: 'string', description: 'unique within this run, never "root"' },
+                parent: { type: 'string', description: 'parent item id; defaults to root' },
+                title: { type: 'string' },
+                status: { type: 'string', description: 'pending, running or done' },
+              },
+              required: ['id', 'title', 'status'],
+            },
+          },
+        },
+        required: ['items'],
+      },
+    },
+  },
   {
     type: 'function',
     function: {
@@ -90,9 +125,27 @@ const TOOL_DEFS = [
 ];
 
 const ALLOWED = new Set(TOOL_DEFS.map((t) => t.function.name));
+
+// The system message is a constant and nothing is ever interpolated into it:
+// that is what keeps the prefix byte-stable across turns, which is what makes
+// a provider's cache hit real. The plan's state is not injected here or
+// anywhere at the front of the conversation — a tool result carries it, so the
+// model reads the plan where it belongs, at the end.
 const SYSTEM = [
   'You are agent.js, a coding agent working in a browser workspace.',
-  'Tools are native: write, run_js, git_commit, read, ls. There is no shell.',
+  'Tools are native; there is no shell.',
+  '',
+  '  plan        declare and advance the work items you are doing.',
+  '              plan({items:[{id, parent?, title, status}]}) upserts them;',
+  '              status is "pending", "running" or "done". Call it before the',
+  '              first change, and again as each item starts and finishes.',
+  '              The one item whose status is "running" is where your tool',
+  '              calls land, so mark it running and mark it done when it is.',
+  '  read, ls    look at the workspace.',
+  '  write       write a text file in the workspace (no commit).',
+  '  run_js      run a JS/TS file in the workspace in a Worker; read its output.',
+  '  git_commit  write one file and commit that one path.',
+  '',
   'Every change to a file is committed with git_commit, one file per step.',
   'Keep answers short.',
 ].join('\n');
@@ -240,9 +293,52 @@ function assistantOf(response) {
   return message;
 }
 
+// ---- the plan, folded from the log -------------------------------------
+//
+// A plan item is a node, and the log is where it lives: every `plan` result
+// carries the nodes it changed, so the item list is a fold over those results
+// in seq order and nothing else stores it. All the loop needs of it is one
+// fact — which item is `running` — so that is all it folds, and a model that
+// marks two items running gets the first one declared rather than a race.
+function planItems(records) {
+  const items = new Map(); // id -> status, in the order the plan declared them
+  for (const r of records) {
+    if (r.kind !== 'result' || r.out?.op !== 'plan') continue;
+    for (const n of r.out.nodes ?? []) items.set(n.id, n.status ?? 'pending');
+  }
+  return [...items].map(([id, status]) => ({ id, status }));
+}
+
+const currentOf = (records) => planItems(records).find((i) => i.status === 'running')?.id ?? 'root';
+
+// A malformed plan is refused here, before it becomes a step: an effect that
+// threw would leave an intent replay could never resolve. The model is told
+// what was wrong in the tool result instead.
+function planProblem(args) {
+  const items = args?.items;
+  if (!Array.isArray(items) || items.length === 0) return 'plan needs items: [{id, title, status}]';
+  const seen = new Set();
+  for (const [i, it] of items.entries()) {
+    const id = typeof it?.id === 'string' ? it.id.trim() : '';
+    if (!id) return `items[${i}] has no id`;
+    if (id === 'root') return 'root is the run itself, not a plan item';
+    if (seen.has(id)) return `item ${id} appears twice in one plan call`;
+    seen.add(id);
+    if (typeof it?.title !== 'string' || !it.title.trim()) return `item ${id} has no title`;
+    if (typeof it?.status !== 'string' || !it.status.trim()) return `item ${id} has no status`;
+  }
+  return null;
+}
+
 // The tool calls in one assistant message, executed one `step()` each. Returns
 // whether the turn asked for anything, i.e. whether another request follows.
-async function runToolCalls(messages, assistant, counters) {
+//
+// `plan.node` is the item the next step lands on. It is recomputed from the log
+// after every plan call — the plan is the log's, and the loop keeps no copy of
+// it — so a step's `node` is the plan's own answer, not a guess. A plan call
+// itself lands on `root`: declaring the work is the run's bookkeeping, not work
+// on an item.
+async function runToolCalls(messages, assistant, counters, plan) {
   messages.push(assistant);
   const calls = Array.isArray(assistant.tool_calls) ? assistant.tool_calls : [];
   for (const call of calls) {
@@ -262,27 +358,40 @@ async function runToolCalls(messages, assistant, counters) {
       messages.push({ role: 'tool', tool_call_id: callId, content: JSON.stringify({ error: `unknown tool ${name}` }) });
       continue;
     }
+    if (name === 'plan') {
+      const problem = planProblem(args);
+      if (problem) {
+        await trace.event('error', { tool: name, callId, message: problem });
+        messages.push({ role: 'tool', tool_call_id: callId, content: JSON.stringify({ error: problem }) });
+        continue;
+      }
+    }
 
     await trace.event('tool.call', { tool: name, args, callId });
     const started = now();
-    const result = await step({ node: 'root', tool: name, args });
+    const node = name === 'plan' ? 'root' : plan.node;
+    const result = await step({ node, tool: name, args });
     const ms = now() - started;
     counters.toolCalls += 1;
     if (result.out?.op === 'git_commit') counters.commits += 1;
-    await trace.event('tool.result', { seq: result.seq, tool: name, out: result.out, ms });
+    // The plan just changed: the next step's node is whatever the log now says
+    // is running. Re-read rather than patch a copy, so the loop cannot drift
+    // from the log a reload would fold.
+    if (name === 'plan') plan.node = currentOf(await readAll());
+    await trace.event('tool.result', { seq: result.seq, node, tool: name, out: result.out, ms });
     await trace.event('timing', { label: 'tool', tool: name, seq: result.seq, ms });
     messages.push({ role: 'tool', tool_call_id: callId, content: JSON.stringify(result.out) });
-    emit('tool', { seq: result.seq, tool: name, out: result.out, ms });
+    emit('tool', { seq: result.seq, node, tool: name, out: result.out, ms });
     await trace.screen(`after tool ${name}`);
   }
   return calls.length > 0;
 }
 
-async function drive(messages, counters) {
+async function drive(messages, counters, plan) {
   while (counters.turns < MAX_TURNS) {
     const response = await requestTurn(messages, counters);
     const assistant = assistantOf(response);
-    const hadTools = await runToolCalls(messages, assistant, counters);
+    const hadTools = await runToolCalls(messages, assistant, counters, plan);
     if (!hadTools) break;
     await trace.screen(`after turn ${counters.turns}`);
   }
@@ -384,8 +493,9 @@ export async function run(prompt) {
   const messages = restored.slice();
   messages.push({ role: 'user', content: String(prompt ?? '') });
   const c = counters();
+  const plan = { node: currentOf(records) };
   try {
-    await drive(messages, c);
+    await drive(messages, c, plan);
   } catch (e) {
     await trace.event('error', { name: e.name, message: e.message });
     await trace.screen('run failed');
@@ -421,6 +531,7 @@ export async function resume() {
   const one = pending[pending.length - 1];
   const messages = (one.args?.body?.messages ?? []).map((m) => ({ ...m }));
   const c = counters();
+  const plan = { node: currentOf(records) };
   try {
     emit('reissue', { seq: one.seq, requestHash: one.args.requestHash });
     const response = await requestTurn(messages, c, {
@@ -430,8 +541,8 @@ export async function resume() {
       reissue: true,
     });
     const assistant = assistantOf(response);
-    const hadTools = await runToolCalls(messages, assistant, c);
-    if (hadTools) await drive(messages, c);
+    const hadTools = await runToolCalls(messages, assistant, c, plan);
+    if (hadTools) await drive(messages, c, plan);
   } catch (e) {
     await trace.event('error', { name: e.name, message: e.message });
     await trace.screen('resume failed');

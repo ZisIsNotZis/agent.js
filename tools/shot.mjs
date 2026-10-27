@@ -9,10 +9,11 @@
 //
 // SHOT_RUN=1 starts tools/mock-provider.mjs itself and drives the real controls
 // (endpoint, model, key, Use key, prompt, Send) through a scripted run that
-// writes a file, runs it with run_js, commits it, and ends with a final
-// assistant message. The shot is taken once that message is in
-// #run-transcript, and the mock is stopped afterwards. Nothing here is part of
-// the product or its probes.
+// declares its work with `plan`, writes a file, runs it with run_js, commits it,
+// closes the items and ends with a final assistant message — so the photographed
+// screen carries the tree the run built, not a one-node decoration. The shot is
+// taken once that message is in #run-transcript, and the mock is stopped
+// afterwards. Nothing here is part of the product or its probes.
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -53,7 +54,13 @@ const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
 const RUN_PROMPT = 'write src/hello.js, run it with run_js, then commit it';
 const HELLO = "console.log('hello from the transcript');\n";
 const RUN_FINAL = 'done: src/hello.js is written, run and committed — see the transcript above';
+const PLAN_A = { id: 'plan', title: 'decide what the change is', status: 'running' };
+const PLAN_B = { id: 'plan', title: 'decide what the change is', status: 'done' };
+const IMPL = { id: 'impl', title: 'write, run and commit src/hello.js', status: 'running' };
+const IMPL_DONE = { ...IMPL, status: 'done' };
 const RUN_SCRIPT = [
+  { tool_calls: [{ name: 'plan', arguments: { items: [PLAN_A] } }] },
+  { tool_calls: [{ name: 'plan', arguments: { items: [PLAN_B, IMPL] } }] },
   {
     tool_calls: [
       { name: 'write', arguments: { path: 'src/hello.js', content: HELLO } },
@@ -61,6 +68,7 @@ const RUN_SCRIPT = [
       { name: 'git_commit', arguments: { path: 'src/hello.js', content: HELLO, message: 'add hello' } },
     ],
   },
+  { tool_calls: [{ name: 'plan', arguments: { items: [IMPL_DONE] } }] },
   { content: RUN_FINAL },
 ];
 

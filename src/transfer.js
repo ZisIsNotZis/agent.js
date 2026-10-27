@@ -46,6 +46,7 @@ function countNodes(log) {
     const out = r.out;
     if (out?.op === 'add_node') ids.add(out.id);
     else if (out?.op === 'set_status') ids.add(out.node);
+    else if (out?.op === 'plan') for (const n of out.nodes ?? []) ids.add(n.id);
   }
   return ids.size;
 }

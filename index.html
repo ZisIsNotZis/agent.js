@@ -17,8 +17,11 @@
   body { margin: 0; padding: 20px 18px 48px; font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
          background: #101014; color: #e6e6ec; max-width: 76rem; }
   .run-panel { border: 1px solid #2a2a32; border-radius: 6px; padding: 12px 14px; margin: 0 0 16px; }
-  .panels { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; margin: 0 0 16px; }
+  .panels { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; margin: 0 0 16px; }
   .panels[data-empty="true"] { grid-template-columns: minmax(0, 1fr); }
+  /* A tree that really is one node is a line, not a panel: it takes a narrow
+     track and the transcript gets the rest of the width. */
+  .panels[data-tree="one"]:not([data-empty="true"]) { grid-template-columns: minmax(0, 18rem) minmax(0, 1fr); }
   .panel { min-width: 0; }
   #tree-nodes { list-style: none; padding: 0; margin: 0 0 12px; font-size: 13px; }
   #tree-nodes li { padding: 3px 6px; border-left: 2px solid #3a3a46; margin: 2px 0; cursor: pointer;
@@ -43,7 +46,9 @@
   #run-transcript details.turn summary { cursor: pointer; color: #b9b9c6; }
   #run-transcript details.turn pre { margin: 6px 0 0; max-height: 18em; overflow: auto; }
   @media (max-width: 760px) {
-    .panels, .panels[data-empty="true"] { grid-template-columns: minmax(0, 1fr); }
+    .panels, .panels[data-empty="true"], .panels[data-tree="one"]:not([data-empty="true"]) {
+      grid-template-columns: minmax(0, 1fr);
+    }
   }
   h1 { font-size: 18px; margin: 0 0 14px; letter-spacing: .04em; }
   p { margin: 0 0 10px; }
@@ -85,7 +90,7 @@
   <pre id="run-status">idle — nothing has run on this load</pre>
 </section>
 
-<div class="panels" id="panels" data-empty="true">
+<div class="panels" id="panels" data-empty="true" data-tree="one">
 <section class="panel">
   <p><span class="k">tree — every node, edge, status and step count read from the log:</span></p>
   <ul id="tree-nodes"><li>reading…</li></ul>

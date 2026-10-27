@@ -7,7 +7,9 @@
 // nothing is re-committed and the commit count does not grow.
 //
 // The M3 tools (add_node/set_status) stay as pure in-file patches; M4 adds the
-// real tools from src/tools.js underneath the same step/1 shape.
+// real tools from src/tools.js underneath the same step/1 shape. W10's `plan`
+// is the model's own tool for the same nodes: one step that upserts a set of
+// {id, parent, title, status} and whose result carries the nodes it changed.
 
 import { append, nextSeq, readAll, replay as replayLog } from './log.js';
 import { TOOLS as FS_TOOLS, getFs, getGit } from './tools.js';
@@ -29,7 +31,7 @@ export { getFs, getGit };
 
 export function initial() {
   return {
-    nodes: { root: { id: 'root', parent: null, status: 'idle' } },
+    nodes: { root: { id: 'root', parent: null, title: 'root', status: 'idle' } },
     seqs: [],
     files: {},
     commits: [],
@@ -38,16 +40,26 @@ export function initial() {
   };
 }
 
+// One rule for a node's shape, whatever declared it. `add_node`, `set_status`
+// and `plan` all fold through here, so a node's parent, title and status have
+// one home and a field one tool does not carry is left as the other set it.
+function upsertNode(state, patch) {
+  const prev = state.nodes[patch.id];
+  state.nodes[patch.id] = {
+    id: patch.id,
+    parent: patch.parent === undefined ? (prev?.parent ?? null) : patch.parent,
+    title: patch.title ?? prev?.title ?? patch.id,
+    status: patch.status ?? prev?.status ?? 'new',
+  };
+}
+
 export function applyOut(state, out) {
   if (out.op === 'add_node') {
-    state.nodes[out.id] = {
-      id: out.id,
-      parent: out.parent,
-      status: state.nodes[out.id]?.status ?? 'new',
-    };
+    upsertNode(state, { id: out.id, parent: out.parent });
   } else if (out.op === 'set_status') {
-    const prev = state.nodes[out.node];
-    state.nodes[out.node] = { id: out.node, parent: prev?.parent ?? null, status: out.status };
+    upsertNode(state, { id: out.node, status: out.status });
+  } else if (out.op === 'plan') {
+    for (const n of out.nodes ?? []) upsertNode(state, n);
   } else if (out.op === 'write') {
     state.files[out.path] = out.bytes;
   } else if (out.op === 'git_commit') {
@@ -68,6 +80,10 @@ export function applyOut(state, out) {
     });
   } else if (out.op === 'read' || out.op === 'ls') {
     // Observations: recorded, nothing to fold.
+  } else if (out.requestHash) {
+    // A model call's result carries the request hash and the reply, not a tree
+    // patch; it folds to nothing, like an observation. Without this a reload
+    // after a completed run could not fold the log at all.
   } else {
     throw new Error(`unknown patch op ${out.op}`);
   }

@@ -85,6 +85,26 @@ export function makeTools(fsOf = getFs, gitOf = getGit) {
   const langOf = (file) => (/\.tsx$/i.test(file) ? 'tsx'
     : /\.[cm]?ts$/i.test(file) ? 'ts' : 'js');
 
+  // `plan` is how the model declares and advances its own work: one call
+  // upserts the items it names (`id`, optional `parent`, `title`, `status`).
+  // The effect *is* the result — the node set it changed — so it is a pure
+  // function of its arguments and nothing but the log remembers a plan. A
+  // replay re-runs it and lands on the same bytes.
+  //
+  // It normalises rather than throws: an effect that threw would leave an
+  // intent replay could never resolve, so the loop refuses a malformed plan
+  // before stepping it and names the problem to the model there.
+  const planRun = (args) => {
+    const items = Array.isArray(args?.items) ? args.items : [];
+    const nodes = items.map((it) => ({
+      id: text(it?.id).trim(),
+      parent: text(it?.parent).trim() || 'root',
+      title: text(it?.title).trim() || text(it?.id).trim(),
+      status: text(it?.status).trim() || 'pending',
+    })).filter((n) => n.id && n.id !== 'root'); // root is the run, not an item
+    return { op: 'plan', nodes };
+  };
+
   const execRun = async (args, ctx) => {
     const fs = await fsOf();
     const file = args.path ?? '<source>';
@@ -144,6 +164,10 @@ export function makeTools(fsOf = getFs, gitOf = getGit) {
   };
 
   return {
+    plan: {
+      run: planRun,
+    },
+
     ls: {
       run: async (args) => {
         const fs = await fsOf();

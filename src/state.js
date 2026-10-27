@@ -78,6 +78,7 @@ export async function boot(settled) {
     state.nodes = Object.values(settled.nodes).map((n) => ({
       id: n.id,
       parent: n.parent,
+      title: n.title ?? n.id,
       status: n.status,
     }));
     state.log = { seqs: settled.seqs.length, lastSeq: settled.seqs.at(-1) ?? 0 };

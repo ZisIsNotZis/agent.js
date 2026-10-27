@@ -45,6 +45,7 @@ const oneLine = (text, max = 120) => {
 
 function toolArgSummary(tool, args) {
   const a = args ?? {};
+  if (tool === 'plan') return oneLine((a.items ?? []).map((i) => `${i?.id ?? '?'}[${i?.status ?? '?'}]`).join(' '));
   if (tool === 'write') return oneLine(`${a.path ?? '?'} — ${String(a.content ?? '').length} chars`);
   if (tool === 'git_commit') return oneLine(`${a.path ?? '?'}${a.message ? ` — "${a.message}"` : ''}`);
   if (tool === 'run_js') return oneLine(a.path ?? 'source');
@@ -381,8 +382,19 @@ let currentView = null;
 let paintToken = 0;
 const diffCache = new Map();
 
-function emptyNode(id, parent, status) {
-  return { id, parent, status, steps: 0, commits: [], depth: 0 };
+function emptyNode(id, parent, status, title) {
+  return { id, parent, status, title: title ?? id, steps: 0, commits: [], depth: 0 };
+}
+
+// One rule for a node's shape, whatever declared it: add_node, set_status and
+// plan all land here, so a field a record does not carry keeps the value the
+// record before it set. The same rule is in src/run.js's upsertNode().
+function nodeIn(nodes, id, parent, status, title) {
+  const n = (nodes[id] ??= emptyNode(id, parent ?? null, status ?? 'idle', title));
+  if (parent !== undefined) n.parent = parent;
+  if (status !== undefined) n.status = status;
+  if (title !== undefined) n.title = title;
+  return n;
 }
 
 function foldView(records) {
@@ -392,18 +404,18 @@ function foldView(records) {
 
   const nodes = { root: emptyNode('root', null, 'idle') };
 
-  // Parent/status are the settled results of add_node/set_status; git_commit's
-  // result names the commit its step produced.
+  // Parent/status/title are the settled results of add_node/set_status/plan;
+  // git_commit's result names the commit its step produced.
   const commits = [];
   for (const seq of [...results.keys()].sort((a, b) => a - b)) {
     const out = results.get(seq).out;
     if (!out) continue;
     if (out.op === 'add_node') {
-      nodes[out.id] ??= emptyNode(out.id, out.parent ?? null, 'new');
-      nodes[out.id].parent = out.parent ?? null;
+      nodeIn(nodes, out.id, out.parent ?? null);
     } else if (out.op === 'set_status') {
-      nodes[out.node] ??= emptyNode(out.node, null, 'idle');
-      nodes[out.node].status = out.status;
+      nodeIn(nodes, out.node, undefined, out.status);
+    } else if (out.op === 'plan') {
+      for (const n of out.nodes ?? []) nodeIn(nodes, n.id, n.parent ?? 'root', n.status, n.title);
     } else if (out.op === 'git_commit') {
       const intent = intents.get(seq);
       const node = intent?.node ?? 'root';
@@ -413,8 +425,8 @@ function foldView(records) {
     }
   }
 
-  // A step whose node has no add_node result is still a step the log holds; it
-  // is shown as an orphan rather than dropped from the count.
+  // A step whose node has no node record is still a step the log holds; it is
+  // shown as an orphan rather than dropped from the count.
   for (const [seq, intent] of intents) {
     const node = intent.node ?? 'root';
     (nodes[node] ??= emptyNode(node, null, 'unrecorded')).steps += 1;
@@ -468,6 +480,7 @@ function outcomeText(out) {
   if (out.op === 'exec') return `ran ${out.file} — exit ${out.exit}`;
   if (out.op === 'add_node') return `added node ${out.id} under ${out.parent ?? 'root'}`;
   if (out.op === 'set_status') return `set ${out.node} to ${out.status}`;
+  if (out.op === 'plan') return `planned ${(out.nodes ?? []).map((n) => `${n.id}[${n.status}]`).join(' ')}`;
   if (out.requestHash) return `model reply ${String(out.requestHash).slice(0, 10)}`;
   return out.op ?? 'result';
 }
@@ -483,9 +496,12 @@ function renderNodes(view) {
     li.dataset.parent = n.parent ?? '';
     li.dataset.status = n.status;
     li.dataset.steps = String(n.steps);
-    li.title = `${n.id} — parent ${n.parent ?? 'none'}, ${n.status}, ${n.steps} step(s), ${n.commits.length} commit(s)`;
+    li.dataset.commits = String(n.commits.length);
+    li.dataset.title = n.title;
+    li.title = `${n.id} — ${n.title}, parent ${n.parent ?? 'none'}, ${n.status}, ${n.steps} step(s), ${n.commits.length} commit(s)`;
     li.textContent = `${'  '.repeat(n.depth)}${n.depth ? '└ ' : ''}${shortId(n.id)} · ${n.status} · ${n.steps} step${n.steps === 1 ? '' : 's'}`
-      + (n.commits.length ? ` · ${n.commits.length} commit${n.commits.length === 1 ? '' : 's'}` : '');
+      + (n.commits.length ? ` · ${n.commits.length} commit${n.commits.length === 1 ? '' : 's'}` : '')
+      + (n.title && n.title !== n.id ? ` · ${n.title}` : '');
     li.addEventListener('click', () => {
       const latest = view.commits.filter((c) => c.node === n.id).at(-1) ?? null;
       selection = { node: n.id, seq: latest ? latest.seq : null };
@@ -565,6 +581,11 @@ async function paintSelection(view) {
 async function renderView(records) {
   const view = foldView(records);
   currentView = view;
+  // One node is a line, not a panel: the layout gives the transcript the room
+  // instead of leaving half the width empty. See `.panels[data-tree]` in
+  // index.html.
+  const panels = $('panels');
+  if (panels) panels.dataset.tree = view.nodes.length === 1 ? 'one' : 'many';
   if (!selectionExplicit || !selection || !view.byId[selection.node]) selection = defaultSelection(view);
   renderNodes(view);
   renderTimeline(view);
