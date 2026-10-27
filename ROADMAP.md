@@ -25,6 +25,8 @@ A milestone is **the deliverable a person judges**, not a stage of building. Cal
 
 W8b, 2026-10-27 — the screen is ordered around the run panel and every number it declares is re-folded from the log on append; the page as photographed at 1280×1000 and 390×844 is `evidence/w8b/desktop.png` and `evidence/w8b/narrow.png`.
 
+W8c, 2026-10-27 — the transcript is the conversation the log already holds: the user's prompt, each assistant message with its tool calls named and summarized, each tool result behind a `<details>`, and the final assistant message last; the run-status block stays the timing/hash ledger and is not duplicated there. A completed scripted run (write, `run_js`, commit, final message) photographed at a 1280×1200 and a 390×844 viewport, full page, is `evidence/w8c/desktop-run.png` and `evidence/w8c/narrow-run.png`.
+
 **What is missing from the milestone, named plainly:** there is no token field, no prompt, no model call, no tree view and no diff on screen today. Everything behind them exists and is green; the face does not.
 
 ## Now

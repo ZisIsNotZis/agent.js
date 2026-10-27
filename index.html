@@ -28,6 +28,20 @@
   #timeline li { padding: 2px 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #timeline li[data-selected="true"] { background: #1b2230; }
   #diff { max-height: 24em; overflow: auto; }
+  #run-transcript { display: flex; flex-direction: column; gap: 10px; font-size: 13px; min-width: 0; }
+  #run-transcript .turn { margin: 0; border-left: 3px solid #2a2a32; padding: 5px 10px; border-radius: 4px;
+                          background: #17171d; min-width: 0; }
+  #run-transcript .turn[data-who="user"] { border-color: #5a8fd6; }
+  #run-transcript .turn[data-who="assistant"] { border-color: #3f9c5a; }
+  #run-transcript .turn[data-who="error"] { border-color: #d98b8b; }
+  #run-transcript .turn[data-who="tool"] { border-color: #3a3a46; padding: 4px 10px; }
+  #run-transcript .who { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: #8b8b9a;
+                         margin-bottom: 3px; }
+  #run-transcript .said { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #run-transcript .calls { margin: 6px 0 0; padding-left: 1.2em; color: #b9b9c6; }
+  #run-transcript .calls li { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #run-transcript details.turn summary { cursor: pointer; color: #b9b9c6; }
+  #run-transcript details.turn pre { margin: 6px 0 0; max-height: 18em; overflow: auto; }
   @media (max-width: 760px) {
     .panels, .panels[data-empty="true"] { grid-template-columns: minmax(0, 1fr); }
   }
@@ -77,8 +91,8 @@
   <ul id="tree-nodes"><li>reading…</li></ul>
 </section>
 <section class="panel">
-  <p><span class="k">transcript — the last run's turns and tool calls</span></p>
-  <pre id="run-transcript" data-empty="true">paste a key and ask for a change</pre>
+  <p><span class="k">transcript — the conversation, folded from the log: your prompt, the assistant's replies and tool calls, each tool result, and the final reply</span></p>
+  <div id="run-transcript" data-empty="true">paste a key and ask for a change</div>
 </section>
 </div>
 

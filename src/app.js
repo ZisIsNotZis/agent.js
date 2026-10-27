@@ -28,16 +28,156 @@ function pushRun(line) {
   if (el) el.textContent = runLines.join('\n');
 }
 
-function transcript(line) {
+// ---- the transcript, folded from the log ---------------------------------
+//
+// The conversation is already in the log: a model_call intent's `args.body`
+// carries the exact request (including the user's message), its result's
+// `out.response.choices[0].message` is the assistant reply, and every tool call
+// is an intent/result pair like any other step. So the transcript is a fold of
+// records, not a second stream held in memory: a reload paints the same
+// conversation from the same bytes, and nothing here invents a message the log
+// does not carry.
+
+const oneLine = (text, max = 120) => {
+  const s = String(text ?? '').replace(/\s+/g, ' ').trim();
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+};
+
+function toolArgSummary(tool, args) {
+  const a = args ?? {};
+  if (tool === 'write') return oneLine(`${a.path ?? '?'} — ${String(a.content ?? '').length} chars`);
+  if (tool === 'git_commit') return oneLine(`${a.path ?? '?'}${a.message ? ` — "${a.message}"` : ''}`);
+  if (tool === 'run_js') return oneLine(a.path ?? 'source');
+  if (tool === 'read' || tool === 'ls') return oneLine(a.path ?? '.');
+  return oneLine(typeof args === 'string' ? args : JSON.stringify(a));
+}
+
+function foldTranscript(records) {
+  const items = [];
+  const intents = new Map();
+  const settled = new Set(records.filter((r) => r.kind === 'result').map((r) => r.seq));
+  let usersSeen = 0;
+  for (const r of [...records].sort((a, b) => a.seq - b.seq)) {
+    if (r.kind === 'intent') {
+      intents.set(r.seq, r);
+      if (r.tool === 'model_call') {
+        // A request body carries the whole conversation up to that point; only
+        // the user messages this fold has not shown yet are new on screen.
+        const users = (r.args?.body?.messages ?? []).filter((m) => m.role === 'user');
+        for (const m of users.slice(usersSeen)) {
+          items.push({ type: 'user', seq: r.seq, text: String(m.content ?? '') });
+        }
+        usersSeen = Math.max(usersSeen, users.length);
+      }
+      continue;
+    }
+    const out = r.out;
+    if (out?.requestHash || out?.error) {
+      const message = out?.response?.choices?.[0]?.message;
+      if (r.ok !== false && message) {
+        items.push({
+          type: 'assistant',
+          seq: r.seq,
+          text: message.content ?? '',
+          calls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
+        });
+      } else {
+        const e = out?.error ?? {};
+        items.push({
+          type: 'error',
+          seq: r.seq,
+          label: `model call ${r.seq} failed`,
+          text: `${e.name ?? 'Error'}: ${e.message ?? 'no message'}`,
+        });
+      }
+      continue;
+    }
+    const intent = intents.get(r.seq);
+    items.push({
+      type: 'tool',
+      seq: r.seq,
+      tool: intent?.tool ?? 'tool',
+      args: intent?.args ?? null,
+      out,
+      ok: r.ok !== false,
+    });
+  }
+  // A model call with no result is on disk as an intent; name it where it sits
+  // rather than showing a conversation that silently stops before it.
+  for (const r of intents.values()) {
+    if (r.tool === 'model_call' && !settled.has(r.seq)) {
+      items.push({
+        type: 'error',
+        seq: r.seq,
+        label: `model call ${r.seq} — no result`,
+        text: 'interrupted by a kill; it is re-issued once when a key is supplied',
+      });
+    }
+  }
+  return items;
+}
+
+function transcriptItem(item) {
+  if (item.type === 'tool') {
+    const details = document.createElement('details');
+    details.className = 'turn';
+    details.dataset.who = 'tool';
+    details.dataset.seq = String(item.seq);
+    const summary = document.createElement('summary');
+    summary.textContent = `${item.tool} → ${outcomeText(item.out)}`;
+    details.append(summary);
+    const pre = document.createElement('pre');
+    pre.textContent = JSON.stringify({ tool: item.tool, args: item.args, out: item.out }, null, 2);
+    details.append(pre);
+    return details;
+  }
+  const box = document.createElement('div');
+  box.className = 'turn';
+  box.dataset.who = item.type;
+  box.dataset.seq = String(item.seq);
+  const who = document.createElement('div');
+  who.className = 'who';
+  who.textContent = item.type === 'user' ? 'you' : (item.type === 'assistant' ? 'assistant' : item.label);
+  box.append(who);
+  if (item.text) {
+    const said = document.createElement('div');
+    said.className = 'said';
+    said.textContent = item.text;
+    box.append(said);
+  }
+  if (item.calls?.length) {
+    const list = document.createElement('ol');
+    list.className = 'calls';
+    for (const call of item.calls) {
+      let args = null;
+      try {
+        args = JSON.parse(call?.function?.arguments ?? '{}');
+      } catch {
+        args = call?.function?.arguments;
+      }
+      const li = document.createElement('li');
+      const name = call?.function?.name ?? 'call';
+      li.textContent = `${name} · ${toolArgSummary(name, args)}`;
+      list.append(li);
+    }
+    box.append(list);
+  }
+  return box;
+}
+
+function renderTranscript(records) {
   const el = $('run-transcript');
   if (!el) return;
-  if (el.dataset.empty !== 'false') {
-    el.textContent = '';
-    el.dataset.empty = 'false';
-    const panels = $('panels');
-    if (panels) panels.dataset.empty = 'false'; // the tree shares the width again
+  const items = foldTranscript(records);
+  el.textContent = '';
+  el.dataset.empty = String(items.length === 0);
+  const panels = $('panels');
+  if (panels) panels.dataset.empty = String(items.length === 0); // the tree shares the width again
+  if (!items.length) {
+    el.textContent = 'paste a key and ask for a change';
+    return;
   }
-  el.textContent += `${line}\n`;
+  for (const item of items) el.append(transcriptItem(item));
 }
 
 function showKeyStatus(status) {
@@ -113,10 +253,8 @@ function wireLoop() {
       if (usage) usage.textContent = d.usage ? JSON.stringify(d.usage) : 'none returned';
     } else if (d.phase === 'tool') {
       pushRun(`tool        ${d.tool} seq ${d.seq} · ${d.out?.op ?? 'done'} · ${Math.round(d.ms)} ms`);
-      transcript(`tool ${d.tool} -> ${JSON.stringify(d.out).slice(0, 400)}`);
     } else if (d.phase === 'error') {
       pushRun(`error       ${d.message}`);
-      transcript(`error ${d.message}`);
     } else if (d.phase === 'done') {
       pushRun(`done        ${d.turns} request(s), ${d.toolCalls} tool call(s), ${d.commits} commit(s), trace ${d.runId}`);
     }
@@ -748,6 +886,7 @@ function refreshPanels() {
       return;
     }
     await renderView(records);
+    renderTranscript(records);
     renderDisk(records);
     renderInflightNow(records);
     renderUsage(records);
@@ -857,6 +996,7 @@ async function main() {
     const records = await readRecords();
     renderDisk(records);
     await renderView(records);
+    renderTranscript(records);
     const lastRun = replayed.state.runs?.at(-1);
     if (lastRun) renderExec(lastRun);
     renderUsage(records);

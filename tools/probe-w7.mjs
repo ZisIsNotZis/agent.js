@@ -119,6 +119,11 @@ const SCRIPT = [
   { content: 'done: a.txt and hello.js are committed' },
 ];
 
+// The conversation the mock was told to produce. The transcript check compares
+// the screen against these, not against anything the page wrote about itself.
+const PROMPT = 'please do the two-turn thing';
+const FINAL_TEXT = SCRIPT[1].content;
+
 const hashOf = (body) => createHash('sha256').update(JSON.stringify(body)).digest('hex');
 
 // A probe cleans only the evidence it wrote itself, by name. Wiping the
@@ -174,13 +179,27 @@ try {
   await mockReset();
   await mockScript(SCRIPT);
 
-  const ran = await page.evaluate(async (cfg) => {
+  const ran = await page.evaluate(async ({ cfg, prompt }) => {
     window.AGENT_SEED = 'w7-acceptance-seed';
     await window.agent.configure(cfg);
-    return window.agent.run('please do the two-turn thing');
-  }, config());
+    return window.agent.run(prompt);
+  }, { cfg: config(), prompt: PROMPT });
   check('the loop ran to a final message', ran?.turns === 2 && ran?.toolCalls === 5,
     `${ran?.turns} requests, ${ran?.toolCalls} tool calls, ${ran?.commits} commits, trace ${ran?.runId}`);
+
+  // The transcript is the conversation, not a tool log: the prompt the person
+  // typed, then the assistant's scripted final message last, both read from
+  // the log by the page. Compared against the mock's own script.
+  await page.waitForFunction((finalText) => {
+    const el = document.getElementById('run-transcript');
+    return Boolean(el) && el.textContent.includes(finalText);
+  }, FINAL_TEXT, { timeout: 30_000 });
+  const transcriptText = await page.evaluate(() => document.getElementById('run-transcript').textContent);
+  const userAt = transcriptText.indexOf(PROMPT);
+  const finalAt = transcriptText.indexOf(FINAL_TEXT);
+  check('the transcript shows the user\'s prompt and then the final assistant message, from the log',
+    userAt >= 0 && finalAt > userAt,
+    `prompt at ${userAt}, scripted final at ${finalAt}: ${JSON.stringify(FINAL_TEXT)}`);
 
   const files = await page.evaluate(async () => {
     const fs = await window.agent.getFs();
