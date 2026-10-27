@@ -63,6 +63,17 @@ The device that carries the promise has never opened it, so the promise is uncon
 Nothing waits on it: M2 onward are judged on a desktop profile, which is why they were ordered behind M1 rather than behind the device.
 When the person has a phone in hand, the ten steps are already written in the order they are done and stay there — `mail/2026-10-23-pages-and-the-phone-checklist.md`.
 
+## What the manager does not ask
+
+Written after asking the person "which provider, which model, what budget?" on 2026-10-26 and being rightly sent back to the goal.
+
+1. **Nothing the design record already answers.** The provider is a runtime input (D7: provider-direct, the person's own token, no relay of ours); asking which one is asking the product to be built for one vendor.
+2. **Nothing that is a runtime variable rather than a build decision.** Endpoint, model, key, budget: the person enters them, in the page, at the moment they use it.
+3. **Nothing already deferred.** The Home Screen observation was deferred on 2026-10-26; offering it again is noise, not diligence.
+4. **Spend is stated, not negotiated, where it is unavoidable** — but a measurement that needs a real paid call is not required to build or verify the harness: a local mock provider is the verification path, and the paid call belongs to the person who owns the key.
+
+The test for a question before it reaches the person: *could the answer be a default, or a mock, or a runtime field?* If yes to any, it is mine.
+
 ## Probe rules, each learned by breaking one
 
 These are not style: every one of them was a probe reporting red that was measuring itself, and each cost a run to discover.
@@ -96,6 +107,21 @@ Not doing: bundling, npm, `esbuild-wasm`, Python.
 ## Not doing, as decisions rather than gaps
 
 No server of ours beyond a CDN; no relay; no telemetry; no token at rest; no WebContainers; no paid runtime; no real shell; no "runs anything"; no unattended runs when the page is closed; no reimplementation of git, TypeScript, ripgrep or diff; no chat-first UI; no install prompt or installer — the product says "add it to the Home Screen".
+
+**M7 — the loop, with the person's own key and a mock that spends nothing — `open`.** Depends on M6.
+Outcome: the thing the design record's five points describe starts existing. A person enters an endpoint, a model and a key in the page, types what they want, and the agent answers with tool calls that are executed, committed per step, and resumed by the log after a kill — with the key never written anywhere.
+Deliverable: `src/provider.js` (chat-completions client: base URL + model + key from the page, streaming off, `usage` captured verbatim, no retry that doubles a paid turn without recording it), `src/loop.js` (one turn: build request → parse tool calls → `step()` each through the existing log → repeat until a message with no tool calls), the token field and the run transcript on screen, and `tools/mock-provider.mjs` (a local OpenAI-shaped endpoint that records every request body and can be told to emit scripted tool calls, so the whole path is verifiable without a cent).
+Acceptance (`node tools/probe-m7.mjs`, against the mock): a two-turn scripted conversation produces the intended file writes and commits; **prefix stability** — the second request's messages are a strict prefix of the first plus one appended message, byte-compared; a kill mid-turn reopens, replays the log, and re-issues the one unfinished model call **at most once** with the recorded request hash on screen; the key appears in no `localStorage`/`sessionStorage`/IndexedDB record/URL/history entry (scanned, not asserted by reading the code); `usage` from the response is displayed; and the page refuses to start a run with no key rather than sending an empty one.
+Not doing: compaction (M8), any provider-specific SDK, any relay, streaming, or a paid call in the probe.
+Cost of acceptance: **zero**. The paid first run belongs to the person, at their own key, and the screen says so before the first send.
+
+**M8 — compaction and the cache arithmetic — `open`.** Depends on M7.
+Outcome: a long conversation keeps working and the visible numbers say whether it is cheap. `/compact` is an appended message; a compaction record carries `{summary, firstKeptEntryId}`; the request is rebuilt as `system + summary + tail`; volatile content never sits at the front.
+Acceptance: against the mock (which reports synthetic `prompt_tokens`/`prompt_cache_hit_tokens`), after a compaction the next request still extends a prefix, and the numbers on screen show hit/miss; a second compaction summarizes from the previous boundary.
+
+**M9 — the tree, as itself — `open`, `need_user_review`.** Depends on M7.
+Outcome: the interface the design record argues for: nodes, edges and statuses rendered as a tree, a diff per node, and a timeline derived from the log, so a reload reconstructs the view rather than the view lying about it.
+Acceptance that is not taste: every node and status on screen comes from the log, a reload with an empty memory shows the same tree, and a step's diff equals `git diff` of the commit it produced. Whether it *reads* well is the person's call, marked here so it is not counted as passed by evidence.
 
 ## What the ledger does not yet show
 
