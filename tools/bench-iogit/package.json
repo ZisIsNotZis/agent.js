@@ -1,13 +1,12 @@
 {
   "name": "agentjs-iogit-timing",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
+  "description": "Measures what a per-step isomorphic-git commit costs over OPFS at 1k and 10k files; not a product path.",
+  "private": true,
   "type": "commonjs",
+  "scripts": {
+    "build": "node build.mjs"
+  },
   "dependencies": {
     "isomorphic-git": "^1.44.4",
     "playwright-core": "^1.64.1"
