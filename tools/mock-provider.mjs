@@ -36,6 +36,14 @@
 //
 // CORS is for the page origin (http://127.0.0.1:8137 by default), including the
 // Authorization preflight, because the page sends a real key header.
+//
+// Private Network Access: a page on a public origin (the live one) calling a
+// helper on 127.0.0.1 is a public->loopback request, and Chromium asks for
+// `Access-Control-Allow-Private-Network: true` on the preflight. Answering it
+// is the mock's job so that a probe can tell a PNA refusal apart from a
+// product defect. The browser may still refuse (or require a permission
+// prompt) before any preflight arrives; that is the deployment constraint the
+// README states, not something the mock can grant.
 import { createServer } from 'node:http';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -61,7 +69,8 @@ let headersSeen = [];
 function cors(req, res) {
   res.setHeader('access-control-allow-origin', req.headers.origin || '*');
   res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
-  res.setHeader('access-control-allow-headers', 'authorization, content-type, x-agent-node');
+  res.setHeader('access-control-allow-headers', 'authorization, content-type, x-agent-node, access-control-request-private-network');
+  res.setHeader('access-control-allow-private-network', 'true');
   res.setHeader('access-control-max-age', '600');
   res.setHeader('vary', 'origin');
 }

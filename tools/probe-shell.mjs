@@ -27,7 +27,9 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { checkModuleGraph } from './probe-module-graph.mjs';
 
 function playwrightSpecifier() {
   const p = process.env.PLAYWRIGHT_CORE;
@@ -49,6 +51,7 @@ try {
 
 const EXE = process.env.CHROME_PATH || undefined;
 const URL_ = process.env.URL || 'http://127.0.0.1:8137/';
+const ROOT = fileURLToPath(new URL('../', import.meta.url));
 
 // The shell list as a reader sees it in sw.js. The probe keeps its own copy on
 // purpose: an acceptance oracle that asks the code under test what to expect
@@ -160,6 +163,20 @@ const expectedPaths = SHELL.map(pathOf).sort();
 const namesMissing = (line, rel) => line.text.includes(rel.replace(/^\.\//, ''));
 
 try {
+  // The graph check asks the code, not a copy of the list: walk every static
+  // import, dynamic import and worker URL from index.html and require each
+  // reached module to be a SHELL entry. This is the check the list-vs-oracle
+  // check below structurally cannot be — the copy can agree with sw.js while
+  // both are wrong. Read from the tree on disk: it is the tree being tested.
+  const graph = await checkModuleGraph({ root: ROOT });
+  console.log(`MODULES module graph from index.html: ${graph.modules.length} modules`);
+  const shellSet = new Set(graph.shell);
+  for (const m of graph.modules) console.log(`  ${graph.lazy.includes(m) ? 'lazy' : shellSet.has(m) ? 'shell' : 'MISSING'} ./${m}`);
+  check('every module reachable from index.html is in sw.js SHELL', graph.ok,
+    graph.ok
+      ? `${graph.modules.length} modules (${graph.lazy.length} declared lazy)`
+      : graph.problems.join('; '));
+
   // The copy above is deliberately independent — it must not ask sw.js what to
   // expect. But a stale copy is worse than a stale test: the day sw.js bumps the
   // cache or gains an entry, this says so, instead of reporting a product defect.
