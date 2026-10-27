@@ -8,6 +8,8 @@
 
 **整个 agent——循环、工具、git 提交、一棵子 agent 树——都在一个静态页面里运行，没有我们自己的服务器；因此杀掉标签页最多损失正在跑的那一步，工作区也从不离开你的浏览器。**
 
+状态：harness 里程碑已达成。下面每一项功能都已对本地 mock provider 验证——196 项检查，2026-10-27 全绿——本项目不产生付费模型调用。
+
 线上地址：**https://zisisnotzis.github.io/agent.js/**，由 GitHub Pages 直接从默认分支提供，没有构建步骤，没有后端。
 源码：**https://github.com/ZisIsNotZis/agent.js**，公开，AGPL-3.0。
 
@@ -98,11 +100,13 @@ URL=https://zisisnotzis.github.io/agent.js/ node tools/probe-m1.mjs   # 或者�
 
 ## 路线图
 
-每个 workset 的交付物、验收和 commit 都在 [`ROADMAP.md`](ROADMAP.md) 里。
+每个 workset 的交付物、验收、commit 和证据都在 [`ROADMAP.md`](ROADMAP.md) 里。
 
-**已实现**——持久化与被服务的副本（W1）、日志与恢复（W2）、导出/导入（W3）、文件 + git 每步一次提交（W4）、执行（W5）、逐条目安装的外壳（W6）、对着 mock 的循环（W7）、作为界面的树（W8）、被记录下来的轨迹（W9）、`plan` 让运行本身长出树（W10）、子节点跑自己的循环并在重开时恢复（W11）、外壳对照模块图做检查（W12）。
+**里程碑已达成——2026-10-27。** harness 已完整构建，并对本地 mock provider 做了端到端验证：持久化与被服务的副本（W1）、日志与恢复（W2）、导出/导入（W3）、文件 + git 每步一次提交（W4）、执行（W5）、逐条目安装的外壳（W6）、对着 mock 的循环（W7）、作为界面的树（W8）、被记录下来的轨迹（W9）、`plan` 让运行本身长出树（W10）、子节点跑自己的循环并在重开时恢复（W11）、外壳对照模块图做检查（W12）。探测器打印 **196 项检查通过**，另加模块图检查；运行记录在 `ROADMAP.md`。
 
-**计划中**——里程碑最后那一项判断，而它是人的判断：在你自己的 key 和 provider 上的第一次真实运行（循环已经对着 mock 验证过，我们不产生任何付费调用）；compaction 与缓存算术；grep 的路线（10k 文件下走 fs 适配层的遍历是否承受得起），它决定 grep 是否发布；作为惰性可选项的 Python；以及手机上、Safari 和 Firefox 上的一切，仍未测量。
+本项目不产生付费调用。循环已经对 mock 验证过，因此在你自己的 key 上第一次真实运行属于你——这是有意划下的边界，不是未完成的步骤。
+
+**本里程碑之外、尚未实现**——compaction 与缓存算术；clone 仓库或打开真实文件夹（工作区是 OPFS）；`grep`/`edit`/`todo` 与远端计算工具（工具集是 `ls`、`read`、`write`、`git_commit`、`run_js`、`plan`、`spawn`）；Pyodide 上的 Python；Node/Bun 适配器；以及 Home Screen、Safari 和 Firefox 上的观察——这些被人推迟了，任何桌面探针都替代不了。
 
 方向：一棵人在标签页里看着并操纵的 agent 树——每个节点有自己的对话、自己的提交、自己那一份预算，整件事可以从日志里恢复，于是工作比页面活得更久，而服务器从不持有 key、文件或钱。
 

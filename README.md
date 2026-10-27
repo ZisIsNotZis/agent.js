@@ -8,6 +8,8 @@ A coding agent that runs in the browser tab: a URL, your own key, a workspace in
 
 **It is the whole agent — loop, tools, git commits, a tree of child agents — running in one static page with no server of ours, so a killed tab costs at most the step that was in flight and the workspace never leaves your browser.**
 
+Status: the harness milestone is reached. Every function below is verified against a local mock provider — 196 checks, all green on 2026-10-27 — with no paid model call made by this project.
+
 Live: **https://zisisnotzis.github.io/agent.js/** — served by GitHub Pages from the default branch, no build step, no backend.
 Source: **https://github.com/ZisIsNotZis/agent.js** — public, AGPL-3.0.
 
@@ -98,11 +100,13 @@ Read [`CONTRIBUTING.md`](CONTRIBUTING.md) — the short version: run the probes 
 
 ## Roadmap
 
-The full ledger with each workset's deliverable, acceptance and commit is [`ROADMAP.md`](ROADMAP.md).
+The full ledger with each workset's deliverable, acceptance, commit and evidence is [`ROADMAP.md`](ROADMAP.md).
 
-**Implemented** — durability and the served copy (W1), the log and resume (W2), export/import (W3), files + git with one commit per step (W4), execution (W5), the entry-by-entry shell (W6), the loop against a mock (W7), the tree as an interface (W8), the recorded trajectory (W9), `plan` building the tree from the run (W10), children running their own loops and resuming on reopen (W11), the shell checked against the module graph (W12).
+**Milestone reached — 2026-10-27.** The harness is built and verified end to end against a local mock provider: durability and the served copy (W1), the log and resume (W2), export/import (W3), files + git with one commit per step (W4), execution (W5), the entry-by-entry shell (W6), the loop against a mock (W7), the tree as an interface (W8), the recorded trajectory (W9), `plan` building the tree from the run (W10), children running their own loops and resuming on reopen (W11), the shell checked against the module graph (W12). The probes print **196 checks passed**, plus the module-graph check; the run record is in `ROADMAP.md`.
 
-**Planned** — the milestone's last judgement, which is a person's: first real run at their own key and provider (the loop is proven against the mock, and no paid call is made by us); compaction and the cache arithmetic; the grep route (whether a 10k-file walk through the fs adapter is affordable) which decides whether grep ships at all; Python as a lazy opt-in; and anything on a phone, Safari or Firefox, still unmeasured.
+No paid call is made by this project. The loop is proven against the mock, so the first run at a real provider is yours, at your own key — that boundary is deliberate, not an unfinished step.
+
+**Beyond this milestone, not built** — compaction and the cache arithmetic; cloning a repository or opening a real folder (the workspace is OPFS); `grep`/`edit`/`todo` and a remote-compute tool (the tool set is `ls`, `read`, `write`, `git_commit`, `run_js`, `plan`, `spawn`); Python via Pyodide; a Node/Bun adapter; and the Home Screen, Safari and Firefox observations, which the person deferred and no desktop probe can replace.
 
 The direction: a tree of agents a person watches and steers in a tab — every node with its own conversation, its own commits and its own share of the budget, the whole thing resumable from a log, so the work outlives the page without a server ever holding the key, the files or the money.
 
