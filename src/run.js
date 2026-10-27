@@ -87,6 +87,12 @@ const fold = {
     const t = TOOLS[tool];
     return t.out ? t.out(args, ctx) : t.run(args, ctx);
   },
+  // The model call is the one intent the boot fold must not resolve: the key is
+  // memory-only, so re-issuing belongs to the loop, with the person's key in
+  // hand. See src/log.js's `defer` note.
+  defer(tool) {
+    return tool === 'model_call';
+  },
   apply(state, result) {
     applyOut(state, result.out);
   },
@@ -137,6 +143,7 @@ let last = null;
 
 // Boot (and resume): the log is folded, any unsettled intent is resolved and its
 // result appended exactly once, and the settled state is kept for the screen.
+// A model_call intent is left `pending` instead — the loop re-issues it.
 export async function replaySettled() {
   const result = await locked(() => replayLog(fold));
   last = result;

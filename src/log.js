@@ -20,6 +20,26 @@ const STORE = 'log';
 
 let dbp = null;
 
+// A record that has landed may need a second reader (the trajectory recorder).
+// Listeners are awaited in append order, so a trace line is never written after
+// a later one; a listener that throws never fails the append that caused it.
+const listeners = new Set();
+
+export function onAppend(fn) {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
+
+async function notify(rec) {
+  for (const fn of listeners) {
+    try {
+      await fn(rec);
+    } catch {
+      // the log is the truth; a reader's failure is not the log's failure
+    }
+  }
+}
+
 export function openDb() {
   if (dbp) return dbp;
   dbp = new Promise((resolve, reject) => {
@@ -76,7 +96,10 @@ export async function append(rec) {
     } else {
       store.add(r);
     }
-    tx.oncomplete = () => resolve(r);
+    tx.oncomplete = async () => {
+      await notify(r);
+      resolve(r);
+    };
     tx.onerror = () => reject(failure || tx.error);
     tx.onabort = () => reject(failure || tx.error || new Error('log transaction aborted'));
   });
@@ -121,8 +144,15 @@ export async function nextSeq() {
 //   run(tool, args, ctx) -> out            the effect, re-run on resume
 //   check(tool, state, args, ctx) -> bool  optional: is the effect already settled?
 //   out(tool, args, ctx) -> out            the out to record when check() says yes
+//   defer(tool, args, ctx) -> bool         optional: leave this intent unsettled
 //   apply(state, result) -> void           fold one settled result into state
 // }
+//
+// `defer` is the model call's shape: a request that may have been paid for is
+// not re-run by the boot fold, because the key is memory-only and absent on a
+// reopen. The intent stays in the log with no result; the loop re-issues it at
+// most once when the person supplies a key, and that is the only place it runs.
+// Every other tool keeps the M3/M4 rule: an unsettled intent is resolved here.
 // fold.run/check/out may be async: git_commit's check reads git.log.
 export async function replay(fold) {
   const records = await readAll();
@@ -133,12 +163,17 @@ export async function replay(fold) {
   const state = fold.initial();
   const seqs = [...intents.keys()].sort((a, b) => a - b);
   const rerun = [];
+  const pending = [];
 
   for (const seq of seqs) {
     const intent = intents.get(seq);
     let result = results.get(seq);
     if (!result) {
       const ctx = { seq, node: intent.node };
+      if (fold.defer && await fold.defer(intent.tool, intent.args, ctx)) {
+        pending.push({ seq, node: intent.node, tool: intent.tool, args: intent.args });
+        continue;
+      }
       const settled = fold.check ? await fold.check(intent.tool, state, intent.args, ctx) : false;
       const out = settled
         ? await fold.out(intent.tool, intent.args, ctx)
@@ -157,10 +192,15 @@ export async function replay(fold) {
     state.seqs.push(seq);
   }
 
+  const inFlight = pending[0]
+    ? { ...pending[0], action: 'pending' }
+    : rerun[0] || null;
+
   return {
     state,
-    inFlight: rerun[0] || null,
+    inFlight,
     rerun,
+    pending,
     records: records.length,
     lastSeq: seqs.length ? seqs[seqs.length - 1] : 0,
   };

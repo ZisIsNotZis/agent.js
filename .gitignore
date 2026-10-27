@@ -3,3 +3,8 @@ node_modules/
 tools/bench-iogit/public/vendor/
 tools/bench-iogit/package-lock.json
 .tmp/
+
+# One recorded acceptance run is the evidence; every other run is local.
+evidence/*
+!evidence/w7-acceptance/
+!evidence/w7-acceptance/**
