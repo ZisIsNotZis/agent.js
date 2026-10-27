@@ -24,6 +24,7 @@ A milestone is **the deliverable a person judges**, not a stage of building. Cal
 | W9 the trajectory | new | open | every run leaves a recorded trace, so a red run is debugged from evidence instead of by re-running |
 | W10 the run builds the tree | new | open | a model run declares subtasks and advances their statuses, so the tree is the run rather than a decoration |
 | W11 children run their own loops | new | done | a node can spawn a child that runs its own model loop and resumes with the rest |
+| W12 the shell checked against the module graph | new | done | a module that ships but is not in `SHELL` fails a check instead of failing offline |
 
 W8b, 2026-10-27 — the screen is ordered around the run panel and every number it declares is re-folded from the log on append; the page as photographed at 1280×1000 and 390×844 is `evidence/w8b/desktop.png` and `evidence/w8b/narrow.png`.
 
@@ -158,6 +159,12 @@ Acceptance: against the mock (which reports synthetic `prompt_tokens`/`prompt_ca
 **M9 — the tree, as itself — `open`, `need_user_review`.** Depends on M7.
 Outcome: the interface the design record argues for: nodes, edges and statuses rendered as a tree, a diff per node, and a timeline derived from the log, so a reload reconstructs the view rather than the view lying about it.
 Acceptance that is not taste: every node and status on screen comes from the log, a reload with an empty memory shows the same tree, and a step's diff equals `git diff` of the commit it produced. Whether it *reads* well is the person's call, marked here so it is not counted as passed by evidence.
+
+## The deployed page, exercised
+
+`probe-m1` against `https://zisisnotzis.github.io/agent.js/` (`4edd4f4`): **13/13** — first load writes, reload finds it, browser restart finds it, offline reopen finds it, and the claim equals `persisted()` in both directions.
+
+`probe-w7` against the same origin is **blocked, and the block is the browser's, not ours**: `Access to fetch at 'http://127.0.0.1:8138/v1/chat/completions' from origin 'https://zisisnotzis.github.io' has been blocked by CORS policy: Permission was denied for this request to access the 'loopback' address space.` Chromium's Private Network Access denies a public page a loopback fetch at the network layer, before any preflight reaches the server — adding `Access-Control-Allow-Private-Network: true` to the mock changes nothing and no `OPTIONS` arrives. That is a fact about **testing a public origin with a loopback mock**, not about the product: a person's provider is on the public internet, where the rule does not apply. What it means is that the loop's live proof cannot be manufactured here — it happens the first time the person pastes their own key, which is what "bring your own token" means.
 
 ## What the ledger does not yet show
 
