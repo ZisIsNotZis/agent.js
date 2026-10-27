@@ -121,10 +121,13 @@ const SCRIPT = [
 
 const hashOf = (body) => createHash('sha256').update(JSON.stringify(body)).digest('hex');
 
+// A probe cleans only the evidence it wrote itself, by name. Wiping the
+// directory took another run's committed screenshots with it once; evidence is
+// the thing a red run is debugged from, so it is never another probe's to delete.
 async function prepareEvidence() {
   await mkdir(EVIDENCE, { recursive: true });
   for (const name of await readdir(EVIDENCE)) {
-    if (name === 'w7-acceptance') continue;
+    if (!name.startsWith('w7-') || name === 'w7-acceptance') continue;
     await rm(join(EVIDENCE, name), { recursive: true, force: true });
   }
 }
