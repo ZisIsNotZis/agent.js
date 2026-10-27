@@ -94,16 +94,35 @@ export function makeTools(fsOf = getFs, gitOf = getGit) {
   // It normalises rather than throws: an effect that threw would leave an
   // intent replay could never resolve, so the loop refuses a malformed plan
   // before stepping it and names the problem to the model there.
-  const planRun = (args) => {
+  const planRun = (args, ctx) => {
     const items = Array.isArray(args?.items) ? args.items : [];
+    // An item's parent defaults to the node whose loop declared it: root for the
+    // run's own plan, the child's id for a child's plan. `ctx.node` is the node
+    // the plan step lands on (src/loop.js), so this needs no separate input.
+    const self = text(ctx?.node) || 'root';
     const nodes = items.map((it) => ({
       id: text(it?.id).trim(),
-      parent: text(it?.parent).trim() || 'root',
+      parent: text(it?.parent).trim() || self,
       title: text(it?.title).trim() || text(it?.id).trim(),
       status: text(it?.status).trim() || 'pending',
     })).filter((n) => n.id && n.id !== 'root'); // root is the run, not an item
     return { op: 'plan', nodes };
   };
+
+  // `spawn` is the one tool whose effect is a *node*, not a file: it records the
+  // child and its task (the child's first user message), and the loop starts the
+  // child's own model loop after this step is committed. The step lands on the
+  // caller, so the child's existence is the parent's log record and a resume
+  // folds it without any memory of this page. Validation (unique id, a task, not
+  // root) lives in src/loop.js, before the step, for the same reason `plan`'s
+  // does: an effect that threw would leave an intent replay could never resolve.
+  const spawnRun = (args, ctx) => ({
+    op: 'spawn',
+    id: text(args?.id).trim(),
+    parent: text(args?.parent).trim() || text(ctx?.node) || 'root',
+    task: text(args?.task),
+    status: 'running',
+  });
 
   const execRun = async (args, ctx) => {
     const fs = await fsOf();
@@ -166,6 +185,12 @@ export function makeTools(fsOf = getFs, gitOf = getGit) {
   return {
     plan: {
       run: planRun,
+    },
+
+    spawn: {
+      // Pure: the result is the node it declares, so a replay re-runs it and
+      // lands on the same bytes. The child loop itself is the loop's to start.
+      run: spawnRun,
     },
 
     ls: {

@@ -60,6 +60,11 @@ export function applyOut(state, out) {
     upsertNode(state, { id: out.node, status: out.status });
   } else if (out.op === 'plan') {
     for (const n of out.nodes ?? []) upsertNode(state, n);
+  } else if (out.op === 'spawn') {
+    // A spawned child is a node the moment its spawn result lands: `running` is
+    // the parent owning its liveness, and the child's own loop is what changes
+    // it to done/failed.
+    upsertNode(state, { id: out.id, parent: out.parent, title: out.task, status: out.status ?? 'running' });
   } else if (out.op === 'write') {
     state.files[out.path] = out.bytes;
   } else if (out.op === 'git_commit') {
@@ -136,11 +141,17 @@ export function holdAt(phase) {
   hold = phase;
 }
 
-export async function step({ node, tool, args }) {
+// `by` is the node whose loop issued the step. It is usually `node`, but a step
+// that lands on a plan item is issued by the loop driving the item's tree, and
+// that is what lets a reload rebuild the *conversation* of a node from the log
+// while children interleave their steps. Records written before W11 have no
+// `by`; a reader treats those as root's, which is what they were.
+export async function step({ node, tool, args, by }) {
   return locked(async () => {
     const seq = await nextSeq();
-    await append({ kind: 'intent', seq, node, tool, args });
-    const ctx = { seq, node };
+    const issuedBy = by ?? node;
+    await append({ kind: 'intent', seq, node, tool, args, by: issuedBy });
+    const ctx = { seq, node, by: issuedBy };
     if (hold === 'after-intent') await never(); // the page is killed here
     const started = now();
     const out = await fold.run(tool, args, ctx);

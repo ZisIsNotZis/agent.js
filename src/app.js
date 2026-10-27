@@ -16,6 +16,9 @@ const $ = (id) => document.getElementById(id);
 let loopMod = null;
 const ensureLoop = () => (loopMod ??= import('./loop.js'));
 let replayed = null;
+// The nodes the log said were `running` on this load — what a reopen restarts,
+// named on the in-flight line even before a key is supplied.
+let bootRestarted = [];
 // The OPFS read-back from this load's boot. The disk block's log/nodes lines
 // are folded from the log at render time; this only carries what the file itself
 // said when it was read.
@@ -46,6 +49,7 @@ const oneLine = (text, max = 120) => {
 function toolArgSummary(tool, args) {
   const a = args ?? {};
   if (tool === 'plan') return oneLine((a.items ?? []).map((i) => `${i?.id ?? '?'}[${i?.status ?? '?'}]`).join(' '));
+  if (tool === 'spawn') return oneLine(`${a.id ?? '?'} ← ${String(a.task ?? '')}`);
   if (tool === 'write') return oneLine(`${a.path ?? '?'} — ${String(a.content ?? '').length} chars`);
   if (tool === 'git_commit') return oneLine(`${a.path ?? '?'}${a.message ? ` — "${a.message}"` : ''}`);
   if (tool === 'run_js') return oneLine(a.path ?? 'source');
@@ -53,22 +57,44 @@ function toolArgSummary(tool, args) {
   return oneLine(typeof args === 'string' ? args : JSON.stringify(a));
 }
 
+// The transcript is one block per node, in log order (first record first), and
+// each block is that node's own conversation folded from the log: its user
+// message(s), its assistant turns, the tool calls it issued (`by`), and the tool
+// results those calls produced. A child's task is its first user message, so a
+// person can read what the child did without opening its parent's block.
 function foldTranscript(records) {
-  const items = [];
-  const intents = new Map();
-  const settled = new Set(records.filter((r) => r.kind === 'result').map((r) => r.seq));
-  let usersSeen = 0;
-  for (const r of [...records].sort((a, b) => a.seq - b.seq)) {
+  const sorted = [...records].sort((a, b) => a.seq - b.seq);
+  const intents = new Map(sorted.filter((r) => r.kind === 'intent').map((r) => [r.seq, r]));
+  const settled = new Set(sorted.filter((r) => r.kind === 'result').map((r) => r.seq));
+  const groups = new Map(); // node -> items; first appearance is the log's order
+  const order = [];
+  const blockOf = (node) => {
+    if (!groups.has(node)) {
+      groups.set(node, []);
+      order.push(node);
+    }
+    return groups.get(node);
+  };
+  // A step belongs to the loop that issued it: `by` on W11 records, the step's
+  // own node on older ones (which were all root's loop, plan items included).
+  const issuedBy = (r) => (r.kind === 'intent'
+    ? (r.by ?? r.node ?? 'root')
+    : (intents.get(r.seq)?.by ?? intents.get(r.seq)?.node ?? 'root'));
+  const usersSeen = new Map();
+
+  for (const r of sorted) {
+    const node = issuedBy(r);
+    const items = blockOf(node);
     if (r.kind === 'intent') {
-      intents.set(r.seq, r);
       if (r.tool === 'model_call') {
         // A request body carries the whole conversation up to that point; only
-        // the user messages this fold has not shown yet are new on screen.
+        // the user messages this node has not shown yet are new on screen.
         const users = (r.args?.body?.messages ?? []).filter((m) => m.role === 'user');
-        for (const m of users.slice(usersSeen)) {
-          items.push({ type: 'user', seq: r.seq, text: String(m.content ?? '') });
+        const seen = usersSeen.get(node) ?? 0;
+        for (const m of users.slice(seen)) {
+          items.push({ type: 'user', node, seq: r.seq, text: String(m.content ?? '') });
         }
-        usersSeen = Math.max(usersSeen, users.length);
+        usersSeen.set(node, users.length);
       }
       continue;
     }
@@ -78,6 +104,7 @@ function foldTranscript(records) {
       if (r.ok !== false && message) {
         items.push({
           type: 'assistant',
+          node,
           seq: r.seq,
           text: message.content ?? '',
           calls: Array.isArray(message.tool_calls) ? message.tool_calls : [],
@@ -86,8 +113,9 @@ function foldTranscript(records) {
         const e = out?.error ?? {};
         items.push({
           type: 'error',
+          node,
           seq: r.seq,
-          label: `model call ${r.seq} failed`,
+          label: `model call ${r.seq} on ${node} failed`,
           text: `${e.name ?? 'Error'}: ${e.message ?? 'no message'}`,
         });
       }
@@ -96,6 +124,7 @@ function foldTranscript(records) {
     const intent = intents.get(r.seq);
     items.push({
       type: 'tool',
+      node,
       seq: r.seq,
       tool: intent?.tool ?? 'tool',
       args: intent?.args ?? null,
@@ -103,19 +132,21 @@ function foldTranscript(records) {
       ok: r.ok !== false,
     });
   }
-  // A model call with no result is on disk as an intent; name it where it sits
-  // rather than showing a conversation that silently stops before it.
-  for (const r of intents.values()) {
-    if (r.tool === 'model_call' && !settled.has(r.seq)) {
-      items.push({
+  // A model call with no result is on disk as an intent; name it in its node's
+  // block rather than showing a conversation that silently stops before it.
+  for (const [seq, r] of intents) {
+    if (r.tool === 'model_call' && !settled.has(seq)) {
+      const node = r.node ?? 'root';
+      blockOf(node).push({
         type: 'error',
-        seq: r.seq,
-        label: `model call ${r.seq} — no result`,
+        node,
+        seq,
+        label: `model call ${seq} on ${node} — no result`,
         text: 'interrupted by a kill; it is re-issued once when a key is supplied',
       });
     }
   }
-  return items;
+  return order.map((node) => ({ node, items: groups.get(node) }));
 }
 
 function transcriptItem(item) {
@@ -123,6 +154,7 @@ function transcriptItem(item) {
     const details = document.createElement('details');
     details.className = 'turn';
     details.dataset.who = 'tool';
+    details.dataset.node = item.node;
     details.dataset.seq = String(item.seq);
     const summary = document.createElement('summary');
     summary.textContent = `${item.tool} → ${outcomeText(item.out)}`;
@@ -135,6 +167,7 @@ function transcriptItem(item) {
   const box = document.createElement('div');
   box.className = 'turn';
   box.dataset.who = item.type;
+  box.dataset.node = item.node;
   box.dataset.seq = String(item.seq);
   const who = document.createElement('div');
   who.className = 'who';
@@ -166,19 +199,31 @@ function transcriptItem(item) {
   return box;
 }
 
-function renderTranscript(records) {
+function renderTranscript(records, view) {
   const el = $('run-transcript');
   if (!el) return;
-  const items = foldTranscript(records);
+  const blocks = foldTranscript(records);
   el.textContent = '';
-  el.dataset.empty = String(items.length === 0);
+  el.dataset.empty = String(blocks.length === 0);
   const panels = $('panels');
-  if (panels) panels.dataset.empty = String(items.length === 0); // the tree shares the width again
-  if (!items.length) {
+  if (panels) panels.dataset.empty = String(blocks.length === 0); // the tree shares the width again
+  if (!blocks.length) {
     el.textContent = 'paste a key and ask for a change';
     return;
   }
-  for (const item of items) el.append(transcriptItem(item));
+  const statusOf = new Map((view?.nodes ?? []).map((n) => [n.id, n.status]));
+  for (const { node, items } of blocks) {
+    const block = document.createElement('section');
+    block.className = 'node-block';
+    block.dataset.node = node;
+    const head = document.createElement('div');
+    head.className = 'node-head';
+    head.textContent = `node ${node} · ${statusOf.get(node) ?? 'unrecorded'}`
+      + ` · ${items.length} turn${items.length === 1 ? '' : 's'}`;
+    block.append(head);
+    for (const item of items) block.append(transcriptItem(item));
+    el.append(block);
+  }
 }
 
 function showKeyStatus(status) {
@@ -213,6 +258,18 @@ function wireLoop() {
     });
     $('key-input').value = '';
     showKeyStatus(status);
+    // No continue button: with the key back in memory, every node the log still
+    // calls running restarts. Without a key it could not, and the in-flight line
+    // already names them.
+    if (bootRestarted.length) {
+      try {
+        const out = await m.resumeAll();
+        bootRestarted = [];
+        pushRun(`resumed     every running node restarted: ${(out.restarted ?? []).join(', ') || '(none)'}`);
+      } catch (e) {
+        pushRun(`error       ${e.message}`);
+      }
+    }
   });
 
   $('key-forget').addEventListener('click', async () => {
@@ -246,14 +303,14 @@ function wireLoop() {
   window.addEventListener('agent:loop', (e) => {
     const d = e.detail || {};
     if (d.phase === 'start') pushRun(`run         started — ${JSON.stringify(String(d.prompt ?? ''))}`);
-    else if (d.phase === 'request') pushRun(`request     seq ${d.seq} · ${d.reissue ? 'RE-ISSUED' : 'sent'} · request hash ${d.requestHash}`);
-    else if (d.phase === 'reissue') pushRun(`re-issued   seq ${d.seq} request ${d.requestHash} — the one unfinished call, re-issued once`);
+    else if (d.phase === 'request') pushRun(`request     seq ${d.seq}${d.node ? ` on ${d.node}` : ''} · ${d.reissue ? 'RE-ISSUED' : 'sent'} · request hash ${d.requestHash}`);
+    else if (d.phase === 'reissue') pushRun(`re-issued   seq ${d.seq} on ${d.node} request ${d.requestHash} — the one unfinished call, re-issued once`);
     else if (d.phase === 'response') {
-      pushRun(`response    seq ${d.seq} · ${Math.round(d.ms)} ms`);
+      pushRun(`response    seq ${d.seq}${d.node ? ` on ${d.node}` : ''} · ${Math.round(d.ms)} ms`);
       const usage = $('usage');
       if (usage) usage.textContent = d.usage ? JSON.stringify(d.usage) : 'none returned';
     } else if (d.phase === 'tool') {
-      pushRun(`tool        ${d.tool} seq ${d.seq} · ${d.out?.op ?? 'done'} · ${Math.round(d.ms)} ms`);
+      pushRun(`tool        ${d.tool} seq ${d.seq} · ${d.out?.op ?? 'done'} · ${Math.round(d.ms)} ms${d.by ? ` · by ${d.by}` : ''}`);
     } else if (d.phase === 'error') {
       pushRun(`error       ${d.message}`);
     } else if (d.phase === 'done') {
@@ -416,6 +473,10 @@ function foldView(records) {
       nodeIn(nodes, out.node, undefined, out.status);
     } else if (out.op === 'plan') {
       for (const n of out.nodes ?? []) nodeIn(nodes, n.id, n.parent ?? 'root', n.status, n.title);
+    } else if (out.op === 'spawn') {
+      // A spawn result is how a child enters the tree: the child's own loop then
+      // owns its status, so a reload paints the child from the same records.
+      nodeIn(nodes, out.id, out.parent ?? 'root', out.status ?? 'running', out.task);
     } else if (out.op === 'git_commit') {
       const intent = intents.get(seq);
       const node = intent?.node ?? 'root';
@@ -481,6 +542,7 @@ function outcomeText(out) {
   if (out.op === 'add_node') return `added node ${out.id} under ${out.parent ?? 'root'}`;
   if (out.op === 'set_status') return `set ${out.node} to ${out.status}`;
   if (out.op === 'plan') return `planned ${(out.nodes ?? []).map((n) => `${n.id}[${n.status}]`).join(' ')}`;
+  if (out.op === 'spawn') return `spawned ${out.id} under ${out.parent ?? 'root'} — ${oneLine(out.task, 80)}`;
   if (out.requestHash) return `model reply ${String(out.requestHash).slice(0, 10)}`;
   return out.op ?? 'result';
 }
@@ -767,12 +829,22 @@ async function renderPersistence() {
       + 'Add to Home Screen, reopen from the icon, and ask again.'));
 }
 
-function renderInflight(replayed) {
+function renderInflight(next) {
   const el = $('inflight');
-  const f = replayed.inFlight;
+  const f = next?.inFlight ?? null;
+  const restarted = next?.restarted ?? bootRestarted;
+  el.dataset.restarted = restarted.join(',');
+  // A node that was `running` when the page died is what a reopen restarts, and
+  // it is named here by id: the line answers "what was resumed", not "was a step
+  // in flight". The ids come from the log's statuses, not from this page's memory.
+  const resumed = restarted.length
+    ? `restarted after the kill: ${restarted.join(', ')} — each node continues from its own log`
+    : '';
   if (!f) {
     el.dataset.inflight = 'none';
-    el.textContent = 'in flight   nothing was in flight — the log\u2019s tail is settled';
+    el.textContent = resumed
+      ? `in flight   ${resumed}`
+      : 'in flight   nothing was in flight — the log\u2019s tail is settled';
     return;
   }
   el.dataset.inflight = `seq:${f.seq}`;
@@ -790,7 +862,7 @@ function renderInflight(replayed) {
   const call = f.tool === 'model_call'
     ? `model_call(request ${String(f.args?.requestHash ?? '').slice(0, 12)}…)`
     : `${f.tool}(${JSON.stringify(f.args)})`;
-  el.textContent = `in flight   seq ${f.seq} · ${call} — ${what}`;
+  el.textContent = `${resumed ? `in flight   ${resumed} · ` : 'in flight   '}seq ${f.seq} · ${call} — ${what}`;
 }
 
 // What the last executed file did. stdout/stderr and the exit are the run's own
@@ -907,7 +979,7 @@ function refreshPanels() {
       return;
     }
     await renderView(records);
-    renderTranscript(records);
+    renderTranscript(records, currentView);
     renderDisk(records);
     renderInflightNow(records);
     renderUsage(records);
@@ -957,8 +1029,9 @@ async function main() {
     }
     setStatus(`imported — ${out.bundle.brief}`, 'ok');
     lastTreeResult = out.result;
+    bootRestarted = Object.values(out.replayed.state.nodes).filter((n) => n.status === 'running').map((n) => n.id);
     await refreshPanels();
-    renderInflight(out.replayed);
+    renderInflight({ inFlight: out.replayed.inFlight });
     return out;
   }
 
@@ -1011,13 +1084,16 @@ async function main() {
   try {
     const settled = await replaySettled();
     replayed = settled;
-    renderInflight(settled);
+    // The log's own statuses are what a reopen restarts; naming them here means
+    // the answer is visible before a key is pasted, not after.
+    bootRestarted = Object.values(settled.state.nodes).filter((n) => n.status === 'running').map((n) => n.id);
+    renderInflight({ inFlight: settled.inFlight, restarted: bootRestarted });
     renderPending(settled.pending);
     lastTreeResult = await boot(settled.state);
     const records = await readRecords();
     renderDisk(records);
     await renderView(records);
-    renderTranscript(records);
+    renderTranscript(records, currentView);
     const lastRun = replayed.state.runs?.at(-1);
     if (lastRun) renderExec(lastRun);
     renderUsage(records);
@@ -1042,6 +1118,12 @@ window.agent = {
   forgetKey: () => ensureLoop().then((m) => m.forget()),
   run: (prompt) => ensureLoop().then((m) => m.run(prompt)),
   resume: () => ensureLoop().then((m) => m.resume()),
+  resumeAll: () => ensureLoop().then((m) => m.resumeAll()),
+  runningNodes: () => ensureLoop().then((m) => m.runningNodes()),
+  // The probe's deterministic kill per node; not part of the product path.
+  holdTurn: (node, n) => ensureLoop().then((m) => m.holdTurn(node, n)),
+  clearHolds: () => ensureLoop().then((m) => m.clearHolds()),
+  restarted: () => bootRestarted.slice(),
   pendingCalls: () => ensureLoop().then((m) => m.pendingCalls()),
   pending: () => (replayed?.pending ?? []).map((p) => ({
     seq: p.seq,

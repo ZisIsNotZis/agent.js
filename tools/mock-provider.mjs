@@ -10,9 +10,22 @@
 //
 // Control endpoints (they are the probe's, not the product's):
 //   GET  /__health           {ok, port, recordsDir}
-//   GET  /__state            {count, scriptIndex, usages, bodies, headers}
-//   POST /__script           {script, resetCount?}  set the reply sequence
+//   GET  /__state            {count, scriptIndex, nodeIndex, nodes, usages, bodies, headers, recordsDir}
+//   POST /__script           {script?, nodes?, resetCount?}
+//                            script  sets the default reply sequence for any node;
+//                            nodes   sets per-node sequences, {<node id>: [entries]};
+//                            a request whose x-agent-node header names a node with
+//                            its own sequence is answered from that node's cursor, and
+//                            a node with none falls back to `script`. Setting a
+//                            sequence resets its cursor. resetCount also zeroes the
+//                            count/bodies/usages/headers logs.
 //   POST /__reset            {}                     count/script/bodies back to 0
+//
+// The page sends `x-agent-node: <node id>` on every model request (src/provider.js):
+// root for the run's own loop, the child id for a child's. That header is how a
+// probe scripts two children that must answer differently to the same tool list;
+// it is not part of the body, so a node's conversation bytes stay what W7's
+// prefix check compares.
 //
 // A script entry is one of:
 //   {tool_calls:[{name, arguments}]}   emit tool calls (arguments object or string)
@@ -36,6 +49,11 @@ await mkdir(RECORD_DIR, { recursive: true });
 let count = 0;
 let script = [];
 let scriptIndex = 0;
+// Per-node reply sequences and their own cursors: one child's script is not
+// another's, and a node's index advances only when that node asks.
+let nodeScripts = Object.create(null);
+let nodeIndex = Object.create(null);
+let nodeCounts = Object.create(null);
 let bodies = [];
 let usages = [];
 let headersSeen = [];
@@ -43,7 +61,7 @@ let headersSeen = [];
 function cors(req, res) {
   res.setHeader('access-control-allow-origin', req.headers.origin || '*');
   res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
-  res.setHeader('access-control-allow-headers', 'authorization, content-type');
+  res.setHeader('access-control-allow-headers', 'authorization, content-type, x-agent-node');
   res.setHeader('access-control-max-age', '600');
   res.setHeader('vary', 'origin');
 }
@@ -118,8 +136,8 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'GET' && url.pathname === '/__state') {
     json(res, 200, {
-      count, scriptIndex, recordsDir: RECORD_DIR,
-      usages, bodies, headers: headersSeen,
+      count, scriptIndex, nodeIndex: { ...nodeIndex }, nodes: { ...nodeCounts },
+      recordsDir: RECORD_DIR, usages, bodies, headers: headersSeen,
     });
     return;
   }
@@ -127,15 +145,25 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && url.pathname === '/__script') {
     const raw = await readBody(req);
     const data = raw.length ? JSON.parse(raw.toString('utf8')) : {};
-    script = Array.isArray(data.script) ? data.script : [];
-    scriptIndex = 0;
+    if (Array.isArray(data.script)) {
+      script = data.script;
+      scriptIndex = 0;
+    }
+    if (data.nodes && typeof data.nodes === 'object' && !Array.isArray(data.nodes)) {
+      nodeScripts = Object.create(null);
+      for (const [node, list] of Object.entries(data.nodes)) {
+        if (Array.isArray(list)) nodeScripts[node] = list;
+      }
+      nodeIndex = Object.create(null);
+    }
     if (data.resetCount) {
       count = 0;
       bodies = [];
       usages = [];
       headersSeen = [];
+      nodeCounts = Object.create(null);
     }
-    json(res, 200, { ok: true, script: script.length, count });
+    json(res, 200, { ok: true, script: script.length, nodes: Object.keys(nodeScripts), count });
     return;
   }
 
@@ -144,6 +172,9 @@ const server = createServer(async (req, res) => {
     count = 0;
     script = [];
     scriptIndex = 0;
+    nodeScripts = Object.create(null);
+    nodeIndex = Object.create(null);
+    nodeCounts = Object.create(null);
     bodies = [];
     usages = [];
     headersSeen = [];
@@ -168,10 +199,20 @@ const server = createServer(async (req, res) => {
   count += 1;
   bodies.push(body);
   headersSeen.push({ authorization: req.headers.authorization ? 'present' : 'absent' });
+  const node = String(req.headers['x-agent-node'] || 'root');
+  nodeCounts[node] = (nodeCounts[node] ?? 0) + 1;
   // Every chat request, verbatim, the moment its bytes are complete.
   await writeFile(join(RECORD_DIR, `request-${String(count).padStart(4, '0')}.json`), rawText);
 
-  const entry = script[scriptIndex++] ?? { content: 'script exhausted' };
+  const perNode = nodeScripts[node];
+  let entry;
+  if (perNode) {
+    const at = nodeIndex[node] ?? 0;
+    entry = perNode[at] ?? { content: 'script exhausted' };
+    nodeIndex[node] = at + 1;
+  } else {
+    entry = script[scriptIndex++] ?? { content: 'script exhausted' };
+  }
   if (entry.hang) return; // no answer; the probe kills the page
   if (entry.delayMs) await new Promise((r) => setTimeout(r, entry.delayMs));
   if (entry.status && entry.status >= 400) {

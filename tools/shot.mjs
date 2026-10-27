@@ -7,17 +7,17 @@
 // two commits), so the tree, diff and timeline are populated; without it the
 // page is photographed as a person first meets it.
 //
-// SHOT_RUN=1 starts tools/mock-provider.mjs itself and drives the real controls
-// (endpoint, model, key, Use key, prompt, Send) through a scripted run that
-// declares its work with `plan`, writes a file, runs it with run_js, commits it,
-// closes the items and ends with a final assistant message — so the photographed
-// screen carries the tree the run built, not a one-node decoration. The shot is
+// SHOT_RUN=1 starts tools/mock-provider.mjs itself (per-node scripts), drives the
+// real controls (endpoint, model, key, Use key, prompt, Send) through a run where
+// the root spawns two children and each runs its own loop, and writes the trace
+// beside the picture — so the photographed
+// screen carries a multi-node tree, not a one-node decoration. The shot is
 // taken once that message is in #run-transcript, and the mock is stopped
 // afterwards. Nothing here is part of the product or its probes.
 import { spawn } from 'node:child_process';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
 function playwrightSpecifier() {
@@ -51,26 +51,47 @@ const EXE = process.env.CHROME_PATH || undefined;
 const RUN = process.env.SHOT_RUN === '1';
 const MOCK_PORT = Number(process.env.MOCK_PORT || 8138);
 const MOCK_URL = `http://127.0.0.1:${MOCK_PORT}`;
-const RUN_PROMPT = 'write src/hello.js, run it with run_js, then commit it';
-const HELLO = "console.log('hello from the transcript');\n";
-const RUN_FINAL = 'done: src/hello.js is written, run and committed — see the transcript above';
-const PLAN_A = { id: 'plan', title: 'decide what the change is', status: 'running' };
-const PLAN_B = { id: 'plan', title: 'decide what the change is', status: 'done' };
-const IMPL = { id: 'impl', title: 'write, run and commit src/hello.js', status: 'running' };
-const IMPL_DONE = { ...IMPL, status: 'done' };
-const RUN_SCRIPT = [
-  { tool_calls: [{ name: 'plan', arguments: { items: [PLAN_A] } }] },
-  { tool_calls: [{ name: 'plan', arguments: { items: [PLAN_B, IMPL] } }] },
-  {
-    tool_calls: [
-      { name: 'write', arguments: { path: 'src/hello.js', content: HELLO } },
-      { name: 'run_js', arguments: { path: 'src/hello.js' } },
-      { name: 'git_commit', arguments: { path: 'src/hello.js', content: HELLO, message: 'add hello' } },
-    ],
-  },
-  { tool_calls: [{ name: 'plan', arguments: { items: [IMPL_DONE] } }] },
-  { content: RUN_FINAL },
-];
+const RUN_PROMPT = 'split the work: two children, each writes one file and commits it';
+const HELLO = "console.log('hello from child hello');\n";
+const NOTES = 'the child wrote the notes\n';
+const ROOT_FILE = 'the root wrote this\n';
+const RUN_FINAL = 'done: both children committed their files and I committed notes/root.txt';
+const CHILD_HELLO_FINAL = 'child hello done: src/hello.js is committed';
+const CHILD_NOTES_FINAL = 'child notes done: notes/plan.txt is committed';
+// W11: the root spawns two children, each of which runs its own model loop and
+// writes + commits one file; the root also commits its own. Per-node scripts,
+// routed by the mock on x-agent-node, are what let the three conversations be
+// different while the page only ever speaks one wire shape.
+const RUN_NODES = {
+  root: [
+    {
+      tool_calls: [
+        { name: 'spawn', arguments: { id: 'child-hello', task: 'write src/hello.js and commit it' } },
+        { name: 'spawn', arguments: { id: 'child-notes', task: 'write notes/plan.txt and commit it' } },
+        { name: 'git_commit', arguments: { path: 'notes/root.txt', content: ROOT_FILE, message: 'root notes' } },
+      ],
+    },
+    { content: RUN_FINAL },
+  ],
+  'child-hello': [
+    {
+      tool_calls: [
+        { name: 'write', arguments: { path: 'src/hello.js', content: HELLO } },
+        { name: 'git_commit', arguments: { path: 'src/hello.js', content: HELLO, message: 'add hello' } },
+      ],
+    },
+    { content: CHILD_HELLO_FINAL },
+  ],
+  'child-notes': [
+    {
+      tool_calls: [
+        { name: 'write', arguments: { path: 'notes/plan.txt', content: NOTES } },
+        { name: 'git_commit', arguments: { path: 'notes/plan.txt', content: NOTES, message: 'add notes' } },
+      ],
+    },
+    { content: CHILD_NOTES_FINAL },
+  ],
+};
 
 const DEMO = [
   { node: 'root', tool: 'add_node', args: { id: 'plan', parent: 'root' } },
@@ -131,7 +152,7 @@ try {
     await mockCall('/__script', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ script: RUN_SCRIPT, resetCount: true }),
+      body: JSON.stringify({ nodes: RUN_NODES, resetCount: true }),
     });
   }
 
@@ -171,16 +192,29 @@ try {
     await page.click('#key-set');
     await page.fill('#prompt', RUN_PROMPT);
     await page.click('#send');
-    await page.waitForFunction((finalText) => {
+    await page.waitForFunction((finals) => {
       const el = document.getElementById('run-transcript');
       const status = document.getElementById('run-status').textContent;
-      return Boolean(el) && el.textContent.includes(finalText) && /\bdone\b/.test(status);
-    }, RUN_FINAL, { timeout: 120_000 });
+      const nodes = [...document.querySelectorAll('#tree-nodes li[data-node]')];
+      const settled = nodes.length >= 3 && nodes.every((li) => li.dataset.status !== 'running');
+      return Boolean(el) && finals.every((t) => el.textContent.includes(t))
+        && settled && /\bdone\b/.test(status);
+    }, [RUN_FINAL, CHILD_HELLO_FINAL, CHILD_NOTES_FINAL], { timeout: 120_000 });
   }
 
   await mkdir(dirname(SHOT), { recursive: true });
   await page.screenshot({ path: SHOT, fullPage: true });
-  console.log(`${SHOT} — ${WIDTH}x${HEIGHT} viewport, full page${RUN ? ', after a completed scripted run' : ''}${process.env.SHOT_DEMO === '1' ? ', after 4 demo steps' : ''}`);
+  if (RUN) {
+    // The run's trajectory, beside the picture: a red run is debugged from it,
+    // and the same run is the evidence for the tree the picture shows.
+    const stem = join(dirname(SHOT), basename(SHOT).replace(/\.png$/, ''));
+    const trace = await page.evaluate(() => window.agent.traceText());
+    const summary = await page.evaluate(() => window.agent.traceSummary());
+    await writeFile(`${stem}.trace.ndjson`, trace);
+    await writeFile(`${stem}.summary.md`, summary);
+    console.log(`${stem}.trace.ndjson — ${trace.split('\n').filter(Boolean).length} events`);
+  }
+  console.log(`${SHOT} — ${WIDTH}x${HEIGHT} viewport, full page${RUN ? ', after a completed multi-node run' : ''}${process.env.SHOT_DEMO === '1' ? ', after 4 demo steps' : ''}`);
 } finally {
   if (ctx) await ctx.close();
   if (mock) mock.kill('SIGTERM');

@@ -76,6 +76,10 @@ export function startRun(meta = {}) {
     env: meta.env ?? null,
     model: meta.model ?? null,
     baseUrl: meta.baseUrl ?? null,
+    // W11: a resume names the nodes the log said were running, so a red run is
+    // debugged from what was restarted rather than from what was remembered.
+    resumed: meta.resumed ?? null,
+    restarted: meta.restarted ?? null,
   });
   return runId;
 }

@@ -47,6 +47,7 @@ function countNodes(log) {
     if (out?.op === 'add_node') ids.add(out.id);
     else if (out?.op === 'set_status') ids.add(out.node);
     else if (out?.op === 'plan') for (const n of out.nodes ?? []) ids.add(n.id);
+    else if (out?.op === 'spawn') ids.add(out.id);
   }
   return ids.size;
 }
@@ -163,7 +164,7 @@ function refuseReason(b) {
 }
 
 function canon(rec) {
-  const keys = ['kind', 'seq', 'node', 'tool', 'args', 'ok', 'out', 'at'];
+  const keys = ['kind', 'seq', 'node', 'by', 'tool', 'args', 'ok', 'out', 'at'];
   const out = {};
   for (const k of keys) if (rec[k] !== undefined) out[k] = rec[k];
   return out;

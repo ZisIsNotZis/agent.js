@@ -32,7 +32,11 @@ export function endpointOf(baseUrl) {
   return /\/chat\/completions$/.test(b) ? b : `${b}/chat/completions`;
 }
 
-export async function chatCompletion({ baseUrl, key, body, signal }) {
+// `node` is the tree node whose loop is asking. It travels as a header, not in
+// the body, for two reasons: the body is the provider's wire shape and must stay
+// byte-identical for prefix stability, and a header is what a local mock can
+// route per-node scripts on. No provider is expected to know the header.
+export async function chatCompletion({ baseUrl, key, body, signal, node }) {
   if (!key) throw new ProviderError('no key — nothing was sent', null, null);
   const url = endpointOf(baseUrl);
   const res = await fetch(url, {
@@ -40,6 +44,7 @@ export async function chatCompletion({ baseUrl, key, body, signal }) {
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${key}`,
+      'x-agent-node': String(node ?? 'root'),
     },
     body: JSON.stringify(body),
     signal,

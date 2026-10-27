@@ -41,6 +41,11 @@
   #run-transcript .who { font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: #8b8b9a;
                          margin-bottom: 3px; }
   #run-transcript .said { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #run-transcript .node-block { border: 1px solid #2a2a32; border-radius: 6px; padding: 6px 8px 8px;
+                               display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  #run-transcript .node-head { font-size: 11px; text-transform: uppercase; letter-spacing: .12em;
+                               color: #9aa4b8; border-bottom: 1px solid #2a2a32; padding-bottom: 4px; }
+  #run-transcript .node-block[data-node="root"] .node-head { color: #5a8fd6; }
   #run-transcript .calls { margin: 6px 0 0; padding-left: 1.2em; color: #b9b9c6; }
   #run-transcript .calls li { white-space: pre-wrap; overflow-wrap: anywhere; }
   #run-transcript details.turn summary { cursor: pointer; color: #b9b9c6; }
@@ -96,7 +101,7 @@
   <ul id="tree-nodes"><li>reading…</li></ul>
 </section>
 <section class="panel">
-  <p><span class="k">transcript — the conversation, folded from the log: your prompt, the assistant's replies and tool calls, each tool result, and the final reply</span></p>
+  <p><span class="k">transcript — one block per node, folded from the log: each node's prompt, its assistant turns and tool calls, and each tool result. A child's block is the child's own conversation.</span></p>
   <div id="run-transcript" data-empty="true">paste a key and ask for a change</div>
 </section>
 </div>
