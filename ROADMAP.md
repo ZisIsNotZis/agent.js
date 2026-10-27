@@ -22,12 +22,16 @@ A milestone is **the deliverable a person judges**, not a stage of building. Cal
 | W7 the loop, with a mock | was M7 | open | typing a request produces tool calls that are executed and committed |
 | W8 the tree, as itself | was M9 | open | the interface a person judges: nodes, statuses, diffs, timeline |
 | W9 the trajectory | new | open | every run leaves a recorded trace, so a red run is debugged from evidence instead of by re-running |
+| W10 the run builds the tree | new | open | a model run declares subtasks and advances their statuses, so the tree is the run rather than a decoration |
+| W11 children run their own loops | new | open | a node can spawn a child that runs its own model loop and resumes with the rest |
 
 W8b, 2026-10-27 — the screen is ordered around the run panel and every number it declares is re-folded from the log on append; the page as photographed at 1280×1000 and 390×844 is `evidence/w8b/desktop.png` and `evidence/w8b/narrow.png`.
 
 W8c, 2026-10-27 — the transcript is the conversation the log already holds: the user's prompt, each assistant message with its tool calls named and summarized, each tool result behind a `<details>`, and the final assistant message last; the run-status block stays the timing/hash ledger and is not duplicated there. A completed scripted run (write, `run_js`, commit, final message) photographed at a 1280×1200 and a 390×844 viewport, full page, is `evidence/w8c/desktop-run.png` and `evidence/w8c/narrow-run.png`.
 
-**What is missing from the milestone, named plainly:** there is no token field, no prompt, no model call, no tree view and no diff on screen today. Everything behind them exists and is green; the face does not.
+**What is missing from the milestone, named plainly.** It was: no token field, no prompt, no model call, no tree view, no diff. Since 2026-10-27 all of those exist and are green: a typed request runs the loop against a mock, each tool call is a logged step and a commit, the tree/diff/timeline are folded from the log, and the transcript reads as a conversation with the final answer last (screenshots in `evidence/w8c/`).
+
+What is still missing is the thing the design record asked for and the screenshots show plainly: **a run does not grow the tree.** Each screenshot of a completed run says `root · idle · 7 steps · 1 commit` — one node, no edges — because `src/loop.js` puts every step on `node: 'root'` and nothing declares subtasks. So "the whole fleet tree resumes itself" is currently true only of a tree nobody builds. That is W10, and until it lands the milestone's own words are half-met.
 
 ## Now
 
