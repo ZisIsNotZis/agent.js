@@ -223,6 +223,43 @@ try {
   const first = await readDom(page);
   const defaultDiff = first.diff;
 
+  // ---- the screen's numbers are the log's numbers, as of now --------------
+  // A stale number is this build's defect, so it is checked against
+  // window.agent.records() rather than against a string written at boot: the
+  // disk block's log line, its node list, and the export brief's node and
+  // record counts must all agree with the records the page just stepped.
+  await page.waitForFunction((want) => {
+    const info = document.getElementById('export-info').textContent;
+    const disk = document.getElementById('tree').textContent;
+    return info.includes(`${want} log records`) && disk.includes(`log        ${want} records`);
+  }, records.length, { timeout: 30_000 }).catch(() => {});
+  const declared = await page.evaluate(() => ({
+    disk: document.getElementById('tree').textContent,
+    exportInfo: document.getElementById('export-info').textContent,
+  }));
+  const maxSeq = records.reduce((m, r) => Math.max(m, r.seq), 0);
+  const intents = records.filter((r) => r.kind === 'intent').length;
+  const results = records.length - intents;
+  const diskLog = declared.disk.match(/log\s+(\d+) records, last seq (\d+)/);
+  const diskNodes = declared.disk.match(/nodes\s+(.+)/);
+  const brief = declared.exportInfo.match(
+    /(\d+) nodes?, (\d+) log records \((\d+) intents?, (\d+) results?\), settled at seq (\d+)/,
+  );
+  const diskNodeCount = diskNodes
+    ? diskNodes[1].split(',').filter((n) => n.trim()).length
+    : -1;
+  const countsAgree = Boolean(diskLog && brief)
+    && Number(diskLog[1]) === records.length && Number(diskLog[2]) === maxSeq
+    && diskNodeCount === oracle.nodes.length
+    && Number(brief[1]) === oracle.nodes.length && Number(brief[2]) === records.length
+    && Number(brief[3]) === intents && Number(brief[4]) === results
+    && Number(brief[5]) === maxSeq;
+  check('the screen\'s declared counts equal the log\'s after the last step',
+    countsAgree,
+    `records=${records.length} lastSeq=${maxSeq} nodes=${oracle.nodes.length}; `
+    + `disk="${declared.disk.split('\n').filter((l) => /^(log|nodes)/.test(l)).join(' | ')}"; `
+    + `export="${declared.exportInfo}"`);
+
   check('the scripted steps all settled', stepped.length === STEPS.length && records.length === STEPS.length * 2,
     `${stepped.length} steps, ${records.length} records`);
 

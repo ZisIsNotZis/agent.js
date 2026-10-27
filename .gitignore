@@ -8,3 +8,5 @@ tools/bench-iogit/package-lock.json
 evidence/*
 !evidence/w7-acceptance/
 !evidence/w7-acceptance/**
+!evidence/w8b/
+!evidence/w8b/**

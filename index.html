@@ -16,7 +16,9 @@
   :root { color-scheme: dark; }
   body { margin: 0; padding: 20px 18px 48px; font: 15px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
          background: #101014; color: #e6e6ec; max-width: 76rem; }
+  .run-panel { border: 1px solid #2a2a32; border-radius: 6px; padding: 12px 14px; margin: 0 0 16px; }
   .panels { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 16px; margin: 0 0 16px; }
+  .panels[data-empty="true"] { grid-template-columns: minmax(0, 1fr); }
   .panel { min-width: 0; }
   #tree-nodes { list-style: none; padding: 0; margin: 0 0 12px; font-size: 13px; }
   #tree-nodes li { padding: 3px 6px; border-left: 2px solid #3a3a46; margin: 2px 0; cursor: pointer;
@@ -26,7 +28,9 @@
   #timeline li { padding: 2px 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #timeline li[data-selected="true"] { background: #1b2230; }
   #diff { max-height: 24em; overflow: auto; }
-  @media (max-width: 760px) { .panels { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 760px) {
+    .panels, .panels[data-empty="true"] { grid-template-columns: minmax(0, 1fr); }
+  }
   h1 { font-size: 18px; margin: 0 0 14px; letter-spacing: .04em; }
   p { margin: 0 0 10px; }
   .k { color: #8b8b9a; }
@@ -45,56 +49,69 @@
   #transfer-status[data-status="ok"]    { color: #7fbf92; }
   #transfer-status[data-status="error"] { color: #d98b8b; }
   .step { color: #8b8b9a; }
+  .diagnostics { margin-top: 32px; padding-top: 14px; border-top: 1px solid #2a2a32;
+                 font-size: 13px; color: #b9b9c6; }
+  .diagnostics h2 { font-size: 11px; font-weight: normal; text-transform: uppercase;
+                    letter-spacing: .12em; color: #8b8b9a; margin: 0 0 12px; }
 </style>
 </head>
 <body>
 <h1>agent.js</h1>
 
-<p id="container" data-standalone="unknown"></p>
+<section class="run-panel">
+  <p><span class="k">run</span> — your endpoint, your model, your key. The key is kept in this page’s memory only (no storage, no URL, no log) and Forget clears it. Nothing is sent until you press Send.</p>
+  <p>endpoint <input type="text" id="base-url" spellcheck="false" placeholder="http://127.0.0.1:8138/v1">
+     model <input type="text" id="model-name" spellcheck="false" placeholder="model name">
+     key <input type="password" id="key-input" spellcheck="false" placeholder="paste key">
+     <button id="key-set">Use key</button> <button id="key-forget">Forget key</button></p>
+  <p id="key-status" data-has-key="false">key        not set — a run with no key sends nothing</p>
+  <p><textarea id="prompt" spellcheck="false" placeholder="what should the agent change?"></textarea>
+     <button id="send">Send</button> <button id="export-trace">Export trajectory</button></p>
+  <p><span class="k">run status</span></p>
+  <pre id="run-status">idle — nothing has run on this load</pre>
+</section>
 
-<p id="claim" data-persisted="unknown">
-  <span class="k">navigator.storage.persisted():</span> <span id="persisted-value">reading…</span>
-</p>
-
-<div class="panels">
+<div class="panels" id="panels" data-empty="true">
 <section class="panel">
   <p><span class="k">tree — every node, edge, status and step count read from the log:</span></p>
   <ul id="tree-nodes"><li>reading…</li></ul>
+</section>
+<section class="panel">
+  <p><span class="k">transcript — the last run's turns and tool calls</span></p>
+  <pre id="run-transcript" data-empty="true">paste a key and ask for a change</pre>
+</section>
+</div>
+
+<section class="panel">
   <p><span class="k">diff — <span id="diff-label">nothing selected</span></span></p>
   <pre id="diff">nothing selected</pre>
   <p><span class="k">timeline — every log record, in order; click one to select its node and diff</span></p>
   <ol id="timeline"><li>reading…</li></ol>
 </section>
-<section class="panel">
-  <p><span class="k">transcript — the last run's turns and tool calls</span></p>
-  <pre id="run-transcript">no turns yet</pre>
-</section>
-</div>
+
+<section class="diagnostics">
+<h2>diagnostics</h2>
+
+<p id="claim" data-persisted="unknown">
+  <span class="k">navigator.storage.persisted():</span> <span id="persisted-value">reading…</span>
+</p>
+
+<p id="container" data-standalone="unknown"></p>
 
 <p><span class="k">what is on disk now, read back from OPFS:</span></p>
 <pre id="tree">reading…</pre>
+
+<p id="shell" data-driven="unknown" data-missing="unknown">shell      reading…</p>
 
 <p id="inflight" data-inflight="unknown">in flight   reading…</p>
 
 <p><span class="k">last run</span></p>
 <pre id="exec" data-exit="none">no file has been run in this workspace yet</pre>
 
-<p id="shell" data-driven="unknown" data-missing="unknown">shell      reading…</p>
-
-<p><button id="persist">Ask the browser to keep this origin's data</button></p>
-
-<p><span class="k">run</span> — your endpoint, your model, your key. The key is kept in this page's memory only (no storage, no URL, no log) and Forget clears it.</p>
-<p>endpoint <input type="text" id="base-url" spellcheck="false" placeholder="http://127.0.0.1:8138/v1">
-   model <input type="text" id="model-name" spellcheck="false" placeholder="model name">
-   key <input type="password" id="key-input" spellcheck="false" placeholder="paste key">
-   <button id="key-set">Use key</button> <button id="key-forget">Forget key</button></p>
-<p id="key-status" data-has-key="false">key        not set — a run with no key sends nothing</p>
-<p><textarea id="prompt" spellcheck="false" placeholder="what should the agent change?"></textarea>
-   <button id="send">Send</button> <button id="export-trace">Export trajectory</button></p>
-<p><span class="k">run status</span></p>
-<pre id="run-status">idle — nothing has run on this load</pre>
 <p><span class="k">usage, exactly as the provider returned it</span></p>
 <pre id="usage">none yet</pre>
+
+<p><button id="persist">Ask the browser to keep this origin's data</button></p>
 
 <p><span class="k">export</span> <span id="export-info">reading the ledger and the tree…</span></p>
 <p><button id="export">Export workspace</button></p>
@@ -106,6 +123,7 @@
 <p id="transfer-status" data-status="idle"></p>
 
 <p id="install-hint" class="step"></p>
+</section>
 
 <script type="module" src="./src/app.js"></script>
 </body>

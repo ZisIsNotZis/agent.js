@@ -6,6 +6,7 @@
 import { boot, NoOpfs } from './state.js';
 import { replaySettled, records as readRecords, getFs, getGit } from './run.js';
 import { exportBundle, importBundle, bundleText, deliverBundle, exportFilename } from './transfer.js';
+import { onAppend } from './log.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -15,6 +16,10 @@ const $ = (id) => document.getElementById(id);
 let loopMod = null;
 const ensureLoop = () => (loopMod ??= import('./loop.js'));
 let replayed = null;
+// The OPFS read-back from this load's boot. The disk block's log/nodes lines
+// are folded from the log at render time; this only carries what the file itself
+// said when it was read.
+let lastTreeResult = null;
 
 const runLines = [];
 function pushRun(line) {
@@ -29,6 +34,8 @@ function transcript(line) {
   if (el.dataset.empty !== 'false') {
     el.textContent = '';
     el.dataset.empty = 'false';
+    const panels = $('panels');
+    if (panels) panels.dataset.empty = 'false'; // the tree shares the width again
   }
   el.textContent += `${line}\n`;
 }
@@ -104,18 +111,14 @@ function wireLoop() {
       pushRun(`response    seq ${d.seq} · ${Math.round(d.ms)} ms`);
       const usage = $('usage');
       if (usage) usage.textContent = d.usage ? JSON.stringify(d.usage) : 'none returned';
-      refreshView();
     } else if (d.phase === 'tool') {
       pushRun(`tool        ${d.tool} seq ${d.seq} · ${d.out?.op ?? 'done'} · ${Math.round(d.ms)} ms`);
       transcript(`tool ${d.tool} -> ${JSON.stringify(d.out).slice(0, 400)}`);
-      refreshView();
     } else if (d.phase === 'error') {
       pushRun(`error       ${d.message}`);
       transcript(`error ${d.message}`);
-      refreshView();
     } else if (d.phase === 'done') {
       pushRun(`done        ${d.turns} request(s), ${d.toolCalls} tool call(s), ${d.commits} commit(s), trace ${d.runId}`);
-      refreshView();
     }
   });
 }
@@ -238,7 +241,6 @@ let selection = null;
 let selectionExplicit = false;
 let currentView = null;
 let paintToken = 0;
-let refreshing = Promise.resolve();
 const diffCache = new Map();
 
 function emptyNode(id, parent, status) {
@@ -431,20 +433,6 @@ async function renderView(records) {
   await paintSelection(view);
 }
 
-// One render at a time, and always from a fresh read of the log.
-function refreshView() {
-  refreshing = refreshing.then(async () => {
-    let records;
-    try {
-      records = await readRecords();
-    } catch {
-      return;
-    }
-    await renderView(records);
-  }).catch(() => {});
-  return refreshing;
-}
-
 // ---- the diff ------------------------------------------------------------
 // Read from git in this page: the commit's tree against its parent's, blob by
 // blob, printed as a unified diff. Nothing here reads the log's memory of the
@@ -633,7 +621,11 @@ function renderInflight(replayed) {
     ? 'the model call was interrupted by a kill; it is named here and re-issued at most once with a key'
     : f.action === 'already settled'
       ? 'found it already settled; its result was appended exactly once'
-      : 're-ran it (pure, idempotent); its result was appended exactly once';
+      : f.action === 'sending'
+        ? 'the model call is in flight; its result will be appended when it lands'
+        : f.action === 'running'
+          ? 'its effect is running; the result will be appended when it lands'
+          : 're-ran it (pure, idempotent); its result was appended exactly once';
   // A model call's args hold the whole request body; the hash names it without
   // dumping a conversation onto one screen line.
   const call = f.tool === 'model_call'
@@ -662,21 +654,107 @@ function renderExec(out) {
   el.textContent = lines.join('\n');
 }
 
-function renderTree(result, replayed) {
+// The disk block: the file's own read-back from boot (the lines that answer
+// "did the write land"), plus counts folded from the log *now*. The log is the
+// truth and the OPFS file is a cache, so a step that lands after boot must move
+// these numbers or the screen is reporting the past.
+function renderDisk(records) {
   const el = $('tree');
+  const result = lastTreeResult;
   if (!result) return;
   const s = result.verified;
   const agree = String(s.boots) === String(result.state.boots) &&
                 result.bytesReadBack === result.bytesWritten;
+  const view = foldView(records);
+  const lastSeq = records.reduce((m, r) => Math.max(m, r.seq), 0);
   el.textContent = [
     `file       .agentjs/tree.json  (${result.bytesReadBack} bytes read back)`,
     `created    ${s.created}`,
     `boots      ${s.boots}${result.fresh ? '  (this load created the file)' : ''}`,
     `lastSeen   ${s.lastSeen}`,
-    `log        ${replayed.records} records, last seq ${replayed.lastSeq}`,
-    `nodes      ${s.nodes.map((n) => `${n.id}(${n.status})`).join(', ')}`,
+    `log        ${records.length} records, last seq ${lastSeq}`,
+    `nodes      ${view.nodes.map((n) => `${n.id}(${n.status})`).join(', ')}`,
     `read-back  ${agree ? 'agrees with what was written' : 'DISAGREES — do not trust the numbers above'}`,
   ].join('\n');
+}
+
+// The in-flight line as of now: the first intent the log has not yet paired
+// with a result. A model call in flight reads as being sent; any other open
+// intent is its effect running. Empty means the tail is settled.
+function renderInflightNow(records) {
+  const intents = new Map();
+  const results = new Set();
+  for (const r of records) {
+    if (r.kind === 'intent') intents.set(r.seq, r);
+    else results.add(r.seq);
+  }
+  const open = [...intents.values()].filter((r) => !results.has(r.seq))
+    .sort((a, b) => a.seq - b.seq);
+  const f = open[0];
+  if (!f) {
+    renderInflight({ inFlight: null });
+    return;
+  }
+  renderInflight({
+    inFlight: {
+      seq: f.seq,
+      node: f.node,
+      tool: f.tool,
+      args: f.args,
+      action: f.tool === 'model_call' ? 'sending' : 'running',
+    },
+  });
+}
+
+// The usage line stays the provider's own object, but read from the newest
+// model result in the log so a reload reports what was actually returned.
+function renderUsage(records) {
+  const el = $('usage');
+  if (!el) return;
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    const r = records[i];
+    const usage = r.kind === 'result' ? r.out?.response?.usage : null;
+    if (usage) {
+      el.textContent = JSON.stringify(usage);
+      return;
+    }
+  }
+  const answered = records.some((r) => r.kind === 'result' && r.out?.requestHash);
+  el.textContent = answered ? 'none returned' : 'none yet';
+}
+
+// The newest exec step in the log, shown in the last-run block. Boot uses the
+// replayed state; a step that lands later uses this.
+function renderLastExec(records) {
+  for (let i = records.length - 1; i >= 0; i -= 1) {
+    const r = records[i];
+    if (r.kind === 'result' && r.out?.op === 'exec') {
+      renderExec(r.out);
+      return;
+    }
+  }
+}
+
+// One subscription, one re-read, every dependent panel. Appends happen from
+// steps, a model call, an import or a boot replay; the screen never patches a
+// counter where it is written, it re-folds the log.
+let panelsChain = Promise.resolve();
+function refreshPanels() {
+  panelsChain = panelsChain.then(async () => {
+    let records;
+    try {
+      records = await readRecords();
+    } catch {
+      return;
+    }
+    await renderView(records);
+    renderDisk(records);
+    renderInflightNow(records);
+    renderUsage(records);
+    renderLastExec(records);
+    await renderTransferInfo();
+  }).catch(() => {});
+  return panelsChain;
 }
 
 async function main() {
@@ -718,9 +796,9 @@ async function main() {
       return out;
     }
     setStatus(`imported — ${out.bundle.brief}`, 'ok');
+    lastTreeResult = out.result;
+    await refreshPanels();
     renderInflight(out.replayed);
-    renderTree(out.result, out.replayed);
-    await renderTransferInfo();
     return out;
   }
 
@@ -768,7 +846,6 @@ async function main() {
 
   window.addEventListener('agent:result', (e) => {
     if (e.detail?.out?.op === 'exec') renderExec(e.detail.out);
-    refreshView();
   });
 
   try {
@@ -776,11 +853,18 @@ async function main() {
     replayed = settled;
     renderInflight(settled);
     renderPending(settled.pending);
-    renderTree(await boot(settled.state), settled);
-    await refreshView();
+    lastTreeResult = await boot(settled.state);
+    const records = await readRecords();
+    renderDisk(records);
+    await renderView(records);
     const lastRun = replayed.state.runs?.at(-1);
     if (lastRun) renderExec(lastRun);
+    renderUsage(records);
     await renderTransferInfo();
+    // From here on every append re-folds the log and repaints the panels that
+    // report it. Subscribed once, after boot, so the boot's own naming of an
+    // interrupted step is not overwritten by a same-information re-render.
+    onAppend(() => { refreshPanels(); });
   } catch (e) {
     $('tree').textContent = e instanceof NoOpfs
       ? `no OPFS here (${e.message}) — nothing is stored, so nothing survives a kill`

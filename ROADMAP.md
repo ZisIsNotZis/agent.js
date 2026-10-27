@@ -23,6 +23,8 @@ A milestone is **the deliverable a person judges**, not a stage of building. Cal
 | W8 the tree, as itself | was M9 | open | the interface a person judges: nodes, statuses, diffs, timeline |
 | W9 the trajectory | new | open | every run leaves a recorded trace, so a red run is debugged from evidence instead of by re-running |
 
+W8b, 2026-10-27 — the screen is ordered around the run panel and every number it declares is re-folded from the log on append; the page as photographed at 1280×1000 and 390×844 is `evidence/w8b/desktop.png` and `evidence/w8b/narrow.png`.
+
 **What is missing from the milestone, named plainly:** there is no token field, no prompt, no model call, no tree view and no diff on screen today. Everything behind them exists and is green; the face does not.
 
 ## Now

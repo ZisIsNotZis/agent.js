@@ -33,8 +33,25 @@ function countRecords(log) {
   return { intents, results };
 }
 
-function describe(tree, log) {
-  const nodes = tree?.nodes?.length ?? 0;
+// The brief describes what the bundle settles into, and the log is that
+// source: the OPFS tree is a cache written at boot, so counting its nodes here
+// would report the state before the steps the log already holds.
+function countNodes(log) {
+  const ids = new Set(['root']);
+  for (const r of log) {
+    if (r.kind === 'intent') {
+      ids.add(r.node ?? 'root');
+      continue;
+    }
+    const out = r.out;
+    if (out?.op === 'add_node') ids.add(out.id);
+    else if (out?.op === 'set_status') ids.add(out.node);
+  }
+  return ids.size;
+}
+
+function describe(log) {
+  const nodes = countNodes(log);
   const { intents, results } = countRecords(log);
   const lastSeq = log.reduce((m, r) => Math.max(m, r.seq), 0);
   return `${nodes} node${nodes === 1 ? '' : 's'}, ${log.length} log records `
@@ -63,7 +80,7 @@ export async function exportBundle() {
     persisted,
     tree,
     log,
-    brief: describe(tree, log),
+    brief: describe(log),
   };
 }
 
