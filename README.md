@@ -4,6 +4,8 @@
 
 # agent.js
 
+**项目状态 · 已完成（2026-11-26）**。浏览器内可恢复 agent 树的 M1，有界的本地模拟 provider 路径。 [验收记录](COMPLETION.md)。
+
 A coding agent that runs in the browser tab: a URL, your own key, a workspace in the browser's own file system, and a tree of agents that survives the page being killed.
 
 **It is the whole agent — loop, tools, git commits, a tree of child agents — running in one static page with no server of ours, so a killed tab costs at most the step that was in flight and the workspace never leaves your browser.**
